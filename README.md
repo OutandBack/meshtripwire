@@ -5,12 +5,15 @@ This project provides a hybrid LoRa + WiFi BLE detection system to monitor for u
 ## 🏗 System Architecture
 
 - **ESP32 Sensor Nodes (Paxcounter + Meshtastic)**: Scans for MACs, sends over LoRa
-- **Raspberry Pi Base Station**: 
+- **Raspberry Pi Base Station**:
   - Runs Mosquitto MQTT broker
-  - Parses MAC sightings
-  - Filters and logs sightings to SQLite
-  - Sends alerts via ntfy.sh, webhook, or SMS
-  - Hosts a Node-RED dashboard with real-time and historical views
+  - Runs `mqtt/mac_alert_monitor.py` to:
+    - Parse MQTT messages from Meshtastic nodes
+    - Filter sightings based on RSSI and whitelist (`config/whitelist.txt`)
+    - Apply Exponential Moving Average (EMA) smoothing to RSSI
+    - Log detections to SQLite (`logs/detections.db`)
+    - Trigger alerts via `notifications/alert_dispatch.py`
+  - Hosts a Node-RED dashboard (`node-red/flows.json`) for visualization
 
 ## 📍 Static Node Location Support
 
@@ -18,10 +21,12 @@ Each fixed node has predefined GPS coordinates stored in `config/nodes.json`. Us
 
 ## 📊 Features
 
+- Central configuration via `config/config.ini`
 - Whitelist of known MACs (`config/whitelist.txt`)
-- RSSI filtering to reduce false positives
-- Kalman or heuristic filtering to infer movement paths
-- SQLite logging (`logs/detections.db`)
+- Node locations defined in `config/nodes.json`
+- RSSI filtering (configurable threshold)
+- Exponential Moving Average (EMA) smoothing for RSSI values
+- SQLite logging (`logs/detections.db`) with periodic commits
 - Node-RED dashboard with worldmap visualization
 - Alert dispatch to:
   - `ntfy.sh`
@@ -34,8 +39,10 @@ Unknown MACs are compared to whitelist and if above RSSI threshold, an alert is 
 
 ## 🧠 Filtering & Heuristics
 
-- RSSI threshold can be set in monitor script
-- Simple distance + timestamp logic or Kalman filter to estimate actual path across sensors
+- **RSSI Threshold**: Configurable in `config/config.ini` (`[Filtering] RSSIMin`). Signals weaker than this are ignored.
+- **EMA Smoothing**: Exponential Moving Average is applied to RSSI values to reduce noise. Alpha value configurable in `config/config.ini` (`[Filtering] EMAlpha`).
+- **State Timeout**: Internal state for EMA smoothing is cleared for MACs not seen for a configurable duration (`[Filtering] StateTimeoutSeconds`).
+- **Movement Path**: *Note: The current scripts focus on detection and alerting per node. Advanced path estimation (Kalman/heuristic) mentioned previously is not implemented in the provided Python scripts but could be added to Node-RED or a separate analysis script.*
 
 ## 🗺 Node-RED Visualization
 
@@ -46,24 +53,36 @@ A worldmap dashboard shows:
 
 ## 🛠️ Setup
 
-```bash
-bash setup/install_dependencies.sh
-python3 mqtt/mac_alert_monitor.py
-# Optional: import flows.json into Node-RED UI
-```
+1.  **Install Dependencies**:
+    ```bash
+    bash setup/install_dependencies.sh
+    ```
+    *(Review this script to ensure it installs necessary packages like `paho-mqtt`, `requests`, etc.)*
+2.  **Configure**:
+    - Copy or rename `config/config.ini.example` to `config/config.ini` (if an example file exists, otherwise create it).
+    - Edit `config/config.ini` to set your MQTT broker details, file paths, filtering thresholds, and notification service credentials/settings.
+    - Populate `config/whitelist.txt` with known MAC addresses (one per line).
+    - Populate `config/nodes.json` with your Meshtastic node IDs and their corresponding GPS coordinates.
+3.  **Run Monitor**:
+    ```bash
+    python3 mqtt/mac_alert_monitor.py
+    ```
+4.  **Setup Node-RED (Optional)**:
+    - Import `node-red/flows.json` into your Node-RED instance.
+    - Ensure Node-RED is configured to connect to your MQTT broker and the SQLite database (`logs/detections.db`).
 
 ## 📦 Folder Structure
 
 ```
 tripwire-system/
 ├── config/
-│   ├── whitelist.txt
-│   └── nodes.json
+│   ├── config.ini          # Main configuration
+│   ├── nodes.json          # Node ID to GPS mapping
+│   └── whitelist.txt       # Known MAC addresses
 ├── logs/
-│   ├── sightings.log
-│   └── detections.db
+│   └── detections.db       # SQLite database for logged detections
 ├── mqtt/
-│   └── mac_alert_monitor.py
+│   └── mac_alert_monitor.py  # Main monitoring script
 ├── notifications/
 │   └── alert_dispatch.py
 ├── node-red/
