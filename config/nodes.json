@@ -1,0 +1,17 @@
+{
+  "node01": {
+    "lat": 34.0501,
+    "lon": -118.2453,
+    "name": "Front Gate"
+  },
+  "node02": {
+    "lat": 34.0509,
+    "lon": -118.2472,
+    "name": "Cabin Porch"
+  },
+  "node03": {
+    "lat": 34.0515,
+    "lon": -118.246,
+    "name": "Back Fence"
+  }
+}

@@ -1,0 +1,52 @@
+[
+    {
+        "id": "mqtt_input",
+        "type": "mqtt in",
+        "z": "flow1",
+        "name": "Meshtastic Data",
+        "topic": "meshtastic/receive",
+        "broker": "localhost",
+        "x": 120,
+        "y": 100,
+        "wires": [["log_mac", "ui_update"]]
+    },
+    {
+        "id": "log_mac",
+        "type": "function",
+        "z": "flow1",
+        "name": "Log MAC",
+        "func": "var mac = msg.payload.mac;
+var node = msg.payload.from;
+var time = new Date().toISOString();
+msg.payload = `${time} | ${node} | ${mac}`;
+return msg;",
+        "outputs": 1,
+        "x": 300,
+        "y": 100,
+        "wires": [["file_out"]]
+    },
+    {
+        "id": "file_out",
+        "type": "file",
+        "z": "flow1",
+        "name": "Log to file",
+        "filename": "/home/pi/tripwire-system/logs/sightings.log",
+        "appendNewline": true,
+        "overwriteFile": "false",
+        "x": 480,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "ui_update",
+        "type": "ui_text",
+        "z": "flow1",
+        "group": "dashboard",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "name": "Latest MAC",
+        "label": "Detected:",
+        "format": "{{msg.payload.mac}} on {{msg.payload.from}}"
+    }
+]
