@@ -1,3 +1,5 @@
+*__NOTE: OaB is not directly associated with the Meshtastic project. This project is a proof-of-concept for creating additional usecases for Meshtastic and similar devices.__*
+
 # Meshtastic + Paxcounter Tripwire System
 
 This project provides a hybrid LoRa + WiFi BLE detection system to monitor for unknown wireless devices on remote properties using Meshtastic nodes and Paxcounter firmware. It integrates with MQTT, Node-RED, SQLite, and modern notification platforms.
