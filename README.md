@@ -1,8 +1,8 @@
 # meshtripwire
 
-Wireless tripwire for remote properties. Distributed sensors detect nearby WiFi/BLE MAC addresses and feed them to a Raspberry Pi base station that filters, logs, and alerts on unknown devices — with off-grid alert delivery over LoRa/Reticulum when there's no Internet.
+Wireless tripwire for remote properties. Distributed sensors detect nearby WiFi/BLE MAC addresses and feed them to a Raspberry Pi base station that filters, logs, and alerts on unknown devices. Everything runs over WiFi/MQTT by default; an optional LoRa mesh (Meshtastic, MeshCore, or Reticulum) extends sensors and alerts off-grid where there's no Internet or WiFi.
 
-Not affiliated with the Meshtastic project. Proof of concept, provided as-is.
+Proof of concept, provided as-is. Not affiliated with the Meshtastic, MeshCore, or Reticulum projects.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ flowchart LR
         S1["Base scanner<br/>WiFi + BLE<br/>(sensors/base_scanner.py)"]
         S2["ESP32 sniffer node<br/>WiFi promiscuous<br/>(firmware/esp32_sniffer)"]
         S4["ESP32 sniffer node<br/>BLE scan<br/>(firmware/esp32_sniffer)"]
-        S3["USB Meshtastic bridge<br/>(mqtt/serial_bridge.py)"]
+        S3["USB LoRa-mesh bridge<br/>Meshtastic (optional)<br/>(mqtt/serial_bridge.py)"]
     end
 
     S1 -->|MQTT| BROKER
@@ -21,7 +21,7 @@ flowchart LR
     S3 -->|MQTT| BROKER
 
     subgraph base["Raspberry Pi base station (Docker)"]
-        BROKER["Mosquitto<br/>meshtastic/receive"]
+        BROKER["Mosquitto broker<br/>topic: meshtastic/receive"]
         MON["Monitor<br/>RSSI filter · EMA · whitelist<br/>(mqtt/mac_alert_monitor.py)"]
         DB[("SQLite<br/>detections.db")]
         NR["Node-RED<br/>dashboard :1880"]
@@ -33,12 +33,12 @@ flowchart LR
     MON -->|unknown MAC| ALERTS
     subgraph ALERTS["Alerts (rate-limited per MAC)"]
         A1["ntfy · webhook · Twilio<br/>(needs Internet)"]
-        A2["MQTT topic → RelayFabric<br/>→ LoRa / Reticulum (off-grid)"]
+        A2["MQTT topic → RelayFabric<br/>→ Meshtastic / MeshCore / Reticulum (off-grid)"]
     end
 ```
 
 **Caveats:**
-- Any sensor that publishes `{"mac", "from", "rssi"}` JSON to MQTT works (see [Where MACs come from](#where-macs-come-from)). Stock Meshtastic Paxcounter sends only anonymized *counts*, not per-MAC data, so it can't drive the whitelist pipeline on its own.
+- Any sensor that publishes `{"mac", "from", "rssi"}` JSON to MQTT works (see [Where MACs come from](#where-macs-come-from)). LoRa mesh firmware is only a transport for reaching out-of-range sensors and alerts — the pipeline doesn't depend on it. (Note: stock Meshtastic's Paxcounter module sends only anonymized *counts*, not per-MAC data, so it can't feed the whitelist on its own.)
 - Modern phones randomize their MACs. Whitelist fixed devices (cameras, sensors, laptops); treat phone MACs as ephemeral.
 
 ## How it works
@@ -63,12 +63,14 @@ sensor. Available sources, in order of effort:
   station's radios. `python -m sensors.base_scanner --node base --ble [--wifi wlan1mon]`
 - **ESP32 sniffer nodes** (`firmware/esp32_sniffer/`) — dedicated ESP32s doing
   promiscuous WiFi *or* BLE capture (one radio per board), backhauling over
-  WiFi/MQTT or serial→Meshtastic→LoRa. Distributed coverage. See `firmware/README.md`.
-- **USB Meshtastic bridge** (`mqtt/serial_bridge.py`) — forwards RF packets a
-  locally attached node hears; the "MAC" is the transmitting node's radio, so
-  this is a tripwire for people carrying Meshtastic devices, not general WiFi/BLE.
-- **Custom Meshtastic firmware** — the original vision (scan + LoRa in one node).
-  Not provided; stock firmware's Paxcounter module sends only anonymized counts.
+  WiFi/MQTT or serial→LoRa mesh (Meshtastic/MeshCore/Reticulum). Distributed
+  coverage. See `firmware/README.md`.
+- **USB LoRa-mesh bridge** (`mqtt/serial_bridge.py`) — forwards RF packets a
+  locally attached Meshtastic node hears; the "MAC" is the transmitting node's
+  radio, so this is a tripwire for people carrying mesh devices, not general
+  WiFi/BLE. (Meshtastic-specific today; the JSON contract is transport-neutral.)
+- **Custom sensor firmware** — the original vision, scan + LoRa in one node.
+  Not provided; would emit the same `{mac, from, rssi}` over any mesh.
 
 ### Off-grid alerts (RelayFabric)
 
@@ -76,8 +78,8 @@ ntfy, webhook, and Twilio all need the Internet — the opposite of the remote
 sites this is built for. Set `EnableMqtt = true` in `[Notifications]` and the
 monitor publishes each alert (JSON: `mac`, `node`, `ts`, `message`) to
 `MqttAlertTopic` on the same broker. [RelayFabric](https://github.com/RelayFabric/RelayFabric)
-subscribes to that topic and relays alerts over **LXMF/Reticulum or a
-Meshtastic channel**, so they reach you with no cellular. See RelayFabric's
+subscribes to that topic and relays alerts over a **LoRa mesh — Meshtastic,
+MeshCore, or LXMF/Reticulum**, so they reach you with no cellular. See RelayFabric's
 `meshtripwire` plugin (formatted alerts) or `examples/meshtripwire.yaml` (relay
 with the generic `mqtt` plugin, no extra code).
 
@@ -95,7 +97,7 @@ cheap-clone tier; brand-name versions cost more.
 | | USB WiFi adapter w/ monitor mode | $10–15 | Needs an mac80211 monitor-capable chipset (e.g. RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
 | **WiFi/BLE sniffer node** | ESP32-C3 SuperMini | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). WiFi-range backhaul only. Onboard PCB antenna is often detuned on these clones → shorter range; prefer a board with a u.FL/external antenna if coverage matters. Deploy several. |
 | | ESP32-WROOM-32 DevKitC | $3–5 | Dual-core alternative, no real advantage for sniffing. |
-| **Off-grid / LoRa node** | Heltec WiFi LoRa 32 V3 | $12–18 | LoRa backhaul for out-of-WiFi-range sensors; runs Meshtastic. Same board as the reference node. |
+| **Off-grid / LoRa node** (optional) | Heltec WiFi LoRa 32 V3 | $12–18 | Only for sensors/alerts beyond WiFi range. Runs Meshtastic, MeshCore, or Reticulum. Same board as the reference node. |
 | | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
 | **Power (per remote node)** | 18650 cell + holder, or USB PSU | $5–15 | Solar + LiPo for true off-grid; a phone charger indoors. |
 
