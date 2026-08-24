@@ -1,10 +1,10 @@
 /*
- * Option 2: ESP32 WiFi/BLE sniffer node.
+ * ESP32 WiFi/BLE sniffer node.
  *
  * A dedicated ESP32 (NOT the Meshtastic node) observes nearby device MACs and
  * publishes each as a sighting to the tripwire MQTT broker, in the same
  * {"mac","from","rssi"} JSON the monitor consumes. Deploy several around the
- * property for coverage the base-station scanner (option 1) can't reach.
+ * property for coverage the base-station scanner can't reach.
  *
  * One board sniffs ONE radio (set SCAN_MODE below):
  *   SCAN_WIFI - promiscuous 802.11: captures WiFi source MACs. Backhaul must be

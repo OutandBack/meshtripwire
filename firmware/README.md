@@ -1,4 +1,4 @@
-# ESP32 sniffer node (option 2)
+# ESP32 sniffer node
 
 A dedicated ESP32 that captures WiFi MACs in promiscuous mode and feeds them to
 the tripwire, for coverage the base-station scanner can't reach. Publishes the

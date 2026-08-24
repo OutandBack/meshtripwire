@@ -1,4 +1,4 @@
-"""Option 1: base-station radio scanner.
+"""Base-station radio scanner.
 
 Sniffs real WiFi and/or BLE MAC addresses on the machine running the broker and
 publishes them as sightings to the tripwire MQTT topic. No custom firmware, but
