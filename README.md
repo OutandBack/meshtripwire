@@ -20,6 +20,23 @@ Sensor nodes scan and forward sightings over LoRa. The base station runs Mosquit
 
 An optional Node-RED dashboard (`node-red/flows.json`) shows live sightings with a strong-signals-only toggle.
 
+### Where MACs come from
+
+Anything that publishes `{"mac","from","rssi"}` to `meshtastic/receive` is a
+sensor. Available sources, in order of effort:
+
+- **Base-station scanner** (`sensors/base_scanner.py`) — sniffs real WiFi/BLE
+  MACs on the machine running the broker. No firmware; range limited to the base
+  station's radios. `python -m sensors.base_scanner --node base --ble [--wifi wlan1mon]`
+- **ESP32 sniffer nodes** (`firmware/esp32_sniffer/`) — dedicated ESP32s doing
+  promiscuous WiFi capture, backhauling over WiFi/MQTT or serial→Meshtastic→LoRa.
+  Distributed coverage. See `firmware/README.md`.
+- **USB Meshtastic bridge** (`mqtt/serial_bridge.py`) — forwards RF packets a
+  locally attached node hears; the "MAC" is the transmitting node's radio, so
+  this is a tripwire for people carrying Meshtastic devices, not general WiFi/BLE.
+- **Custom Meshtastic firmware** — the original vision (scan + LoRa in one node).
+  Not provided; stock firmware's Paxcounter module sends only anonymized counts.
+
 ### Off-grid alerts (RelayFabric)
 
 ntfy, webhook, and Twilio all need the Internet — the opposite of the remote
