@@ -23,7 +23,8 @@ monitor.whitelist = {'AA:BB:CC:DD:EE:FF'}
 payload = json.dumps({'mac': 'de:ad:be:ef:00:01', 'from': 'node01', 'rssi': -60}).encode()
 parsed = monitor.parse_mqtt_message(payload, 'meshtastic/receive')
 assert parsed and parsed['mac'] == 'DE:AD:BE:EF:00:01'
-assert monitor.parse_mqtt_message(json.dumps({'mac': 'x', 'rssi': -99}).encode(), 't') is None  # below RSSIMin
+too_weak = monitor.config.getint('Filtering', 'RSSIMin') - 1
+assert monitor.parse_mqtt_message(json.dumps({'mac': 'x', 'rssi': too_weak}).encode(), 't') is None  # below RSSIMin
 
 assert monitor.process_detection(parsed) == 'unknown'
 whitelisted = dict(parsed, mac='AA:BB:CC:DD:EE:FF')
