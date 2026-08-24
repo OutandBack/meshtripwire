@@ -79,6 +79,31 @@ Meshtastic channel**, so they reach you with no cellular. See RelayFabric's
 `meshtripwire` plugin (formatted alerts) or `examples/meshtripwire.yaml` (relay
 with the generic `mqtt` plugin, no extra code).
 
+## Hardware
+
+Nothing here is required all at once — build the base station, then add whichever
+sensors fit your site. Prices are rough street prices (mid-2026, USD) for the
+cheap-clone tier; brand-name versions cost more.
+
+| Role | Part | ~Cost | Notes |
+|------|------|-------|-------|
+| **Base station** | Raspberry Pi 4/5 (2GB+) | $35–60 | Runs the whole Docker stack. A Pi Zero 2 W (~$15) works for light loads. |
+| | microSD 16GB+ | $6 | Or boot from USB/SSD. |
+| **Base scanner radios** (option 1) | USB BLE adapter | $8–12 | Any BlueZ-compatible dongle; many Pis have BLE built in ($0). |
+| | USB WiFi adapter w/ monitor mode | $10–15 | Needs an mac80211 monitor-capable chipset (e.g. RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
+| **WiFi sniffer node** (option 2) | ESP32-C3 SuperMini | $2–3 | Cheapest sniffer; WiFi-range backhaul only. Deploy several. |
+| | ESP32-WROOM-32 DevKitC | $3–5 | Dual-core alternative, no real advantage for sniffing. |
+| **Off-grid / LoRa node** | Heltec WiFi LoRa 32 V3 | $12–18 | LoRa backhaul for out-of-WiFi-range sensors; runs Meshtastic. Same board as the reference node. |
+| | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
+| **Power (per remote node)** | 18650 cell + holder, or USB PSU | $5–15 | Solar + LiPo for true off-grid; a phone charger indoors. |
+
+Minimum viable tripwire: a **Pi with built-in BLE** running the base scanner —
+zero extra hardware, real BLE MACs, limited to the Pi's radio range. Add ESP32-C3
+sniffers for more WiFi coverage, and a Heltec V3 only when a sensor is beyond WiFi.
+
+Reality check: phone MAC randomization means every tier detects *presence*, not
+*identity* — buy for coverage (more cheap nodes), not for a fancier single node.
+
 ## Setup
 
 ### Docker (recommended)
