@@ -221,7 +221,10 @@ constant strangers. Three gates, all in `config.ini`:
   biggest false-positive reducer; try 120–300s.
 - **Arming** (`[Arming] Schedule = 22:00-06:00`) — only alert during away/asleep
   hours. Or drive it live: publish `armed`/`disarmed`/`auto` to `ControlTopic`
-  (e.g. a phone-presence automation disarms while you're home).
+  (e.g. a phone-presence automation disarms while you're home). Because a disarm
+  turns off protection, set `ControlSecret` (messages become
+  `{"cmd":"disarmed","secret":"..."}`) so a random broker client can't disarm you,
+  and a manual override auto-reverts to the schedule after `ControlOverrideTTL`.
 - **Sensor watchdog** (`[Sensors] ExpectedSensors = gate,fence`) — alerts if a
   listed sensor goes silent past `SensorTimeoutSeconds`, so a dead node or downed
   mesh link doesn't become a silent blind spot. Sensors count as alive via any

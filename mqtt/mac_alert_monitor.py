@@ -22,6 +22,7 @@ dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time
 sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
 sensor_offline = set() # Nodes currently flagged offline (alert once, until they return)
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
+manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
 db_cursor = None
 
@@ -334,9 +335,17 @@ def _in_arm_window(schedule, now):
 
 
 def is_armed():
-    """Whether alerts should fire now: manual override wins, else the schedule."""
+    """Whether alerts should fire now: a (non-expired) manual override wins, else
+    the schedule. A manual override auto-reverts after ControlOverrideTTL so a
+    stray or malicious 'disarmed' can't silently disable alerts forever."""
+    global manual_armed
     if manual_armed is not None:
-        return manual_armed
+        ttl = config.getint('Arming', 'ControlOverrideTTL', fallback=3600)
+        if ttl > 0 and time.time() - manual_armed_ts > ttl:
+            logging.info("Arming override expired; reverting to schedule.")
+            manual_armed = None
+        else:
+            return manual_armed
     schedule = config.get('Arming', 'Schedule', fallback='').strip()
     if not schedule:
         return True
@@ -452,9 +461,30 @@ def on_message(client, userdata, msg):
 
 
 def handle_control(payload_bytes):
-    """Arm/disarm control message: 'armed', 'disarmed', or 'auto' (follow schedule)."""
-    global manual_armed
-    cmd = payload_bytes.decode(errors='replace').strip().lower()
+    """Arm/disarm control message: 'armed', 'disarmed', or 'auto' (follow schedule).
+
+    If ControlSecret is set, the message must be JSON {"cmd": ..., "secret": ...}
+    with a matching secret — otherwise anyone able to publish to the broker could
+    disarm the system. A bare-string command is accepted only when no secret is set.
+    """
+    global manual_armed, manual_armed_ts
+    raw = payload_bytes.decode(errors='replace').strip()
+    secret = config.get('Arming', 'ControlSecret', fallback='').strip()
+    try:
+        obj = json.loads(raw)
+    except (ValueError, TypeError):
+        obj = None
+    if isinstance(obj, dict):
+        if secret and obj.get('secret') != secret:
+            logging.warning("Rejected arming command: missing or wrong secret.")
+            return
+        cmd = str(obj.get('cmd', '')).lower()
+    elif secret:
+        logging.warning("Rejected unauthenticated arming command (ControlSecret is set).")
+        return
+    else:
+        cmd = raw.lower()
+
     if cmd == 'armed':
         manual_armed = True
     elif cmd == 'disarmed':
@@ -464,7 +494,10 @@ def handle_control(payload_bytes):
     else:
         logging.warning(f"Unknown arming command: {cmd!r} (expected armed/disarmed/auto).")
         return
-    logging.info(f"Arming override set to {cmd} (armed now: {is_armed()}).")
+    manual_armed_ts = time.time()
+    # Disarming reduces protection — log it loudly so it's visible in the record.
+    level = logging.WARNING if cmd == 'disarmed' else logging.INFO
+    logging.log(level, f"Arming override set to {cmd} (armed now: {is_armed()}).")
 
 
 def handle_heartbeat(payload_bytes):
@@ -492,6 +525,14 @@ def main():
 
     # Setup logging based on config
     setup_logging()
+
+    # Warn if the arm/disarm control path is exposed without a shared secret —
+    # on an anonymous broker anyone on the network could then disarm alerting.
+    if config.get('Arming', 'ControlTopic', fallback='').strip() and \
+            not config.get('Arming', 'ControlSecret', fallback='').strip():
+        logging.warning("Arming ControlTopic is set without ControlSecret — anyone who can "
+                        "publish to the broker can disarm alerts. Set ControlSecret and/or "
+                        "restrict the broker with auth/ACLs.")
 
     # Load data files and setup database using config paths
     load_data_files()

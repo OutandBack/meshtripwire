@@ -66,6 +66,7 @@ monitor.config.set('Filtering', 'DwellSeconds', '0')
 monitor.last_alert_times.clear()
 monitor.dwell_states.clear()
 monitor.manual_armed = False
+monitor.manual_armed_ts = time.time()
 with mock.patch.object(monitor, 'send_alert') as sa:
     monitor.trigger_alert_if_needed('AR:00:00:00:00:01', 'node01', 'unknown')
     assert sa.call_count == 0  # disarmed
@@ -75,6 +76,26 @@ assert monitor._in_arm_window('22:00-06:00', datetime(2026, 1, 1, 12, 0)) is Fal
 assert monitor._in_arm_window('09:00-17:00', datetime(2026, 1, 1, 12, 0)) is True   # normal window
 monitor.config.set('Arming', 'Schedule', '')
 assert monitor.is_armed() is True  # empty schedule = always armed
+
+# Control override auto-expires (fail-safe: a stray disarm can't persist forever)
+monitor.config.set('Arming', 'ControlOverrideTTL', '3600')
+monitor.handle_control(b'disarmed')
+assert monitor.is_armed() is False
+monitor.manual_armed_ts = time.time() - 3601  # pretend the override aged out
+assert monitor.is_armed() is True              # reverted to schedule (always armed)
+assert monitor.manual_armed is None
+
+# Control secret: bad/absent secret rejected, correct secret accepted
+monitor.config.set('Arming', 'ControlSecret', 's3cret')
+monitor.manual_armed = None
+monitor.handle_control(b'disarmed')                                  # bare cmd, secret set -> rejected
+assert monitor.manual_armed is None
+monitor.handle_control(b'{"cmd":"disarmed","secret":"wrong"}')       # wrong secret -> rejected
+assert monitor.manual_armed is None
+monitor.handle_control(b'{"cmd":"disarmed","secret":"s3cret"}')      # correct -> applied
+assert monitor.manual_armed is False
+monitor.config.set('Arming', 'ControlSecret', '')
+monitor.manual_armed = None
 
 # Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
 monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
