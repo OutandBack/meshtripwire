@@ -1,18 +1,13 @@
 import requests
 import logging
-# Import the config object from the main script (assuming it's accessible)
-# This relies on mac_alert_monitor.py setting up the global 'config'
-from mqtt.mac_alert_monitor import config as app_config
 
 # Get a logger instance (consistent with the main script's logging)
 logger = logging.getLogger(__name__)
 
-def send_alert(mac, node):
-    """Sends alerts via configured channels (ntfy, webhook, Twilio)."""
-    if not app_config:
-        logger.error("Configuration not loaded in alert_dispatch. Cannot send alerts.")
-        return
+REQUEST_TIMEOUT = 10 # seconds; alerts run on the MQTT thread, a hung POST would stall detection
 
+def send_alert(app_config, mac, node):
+    """Sends alerts via configured channels (ntfy, webhook, Twilio)."""
     message = f"ALERT: Unknown MAC {mac} detected by node {node}."
     logger.info(f"Dispatching alert: {message}")
 
@@ -22,7 +17,7 @@ def send_alert(mac, node):
         if ntfy_topic:
             try:
                 url = f"https://ntfy.sh/{ntfy_topic}"
-                response = requests.post(url, data=message.encode('utf-8')) # Send as bytes
+                response = requests.post(url, data=message.encode('utf-8'), timeout=REQUEST_TIMEOUT)
                 response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
                 logger.info(f"Sent alert to ntfy.sh topic: {ntfy_topic}")
             except requests.exceptions.RequestException as e:
@@ -37,7 +32,7 @@ def send_alert(mac, node):
         webhook_url = app_config.get('Notifications', 'WebhookURL', fallback=None)
         if webhook_url:
             try:
-                response = requests.post(webhook_url, json={"text": message})
+                response = requests.post(webhook_url, json={"text": message}, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
                 logger.info(f"Sent alert to webhook: {webhook_url}")
             except requests.exceptions.RequestException as e:
@@ -62,15 +57,9 @@ def send_alert(mac, node):
                     "From": from_phone,
                     "To": to_phone,
                     "Body": message
-                })
+                }, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
-                # Check Twilio response content for success/failure if needed
-                # response_data = response.json()
-                # if response_data.get('status') in ['queued', 'sent']:
                 logger.info(f"Sent alert via Twilio SMS to {to_phone}")
-                # else:
-                #     logger.error(f"Twilio API reported failure: {response_data.get('message')}")
-
             except requests.exceptions.RequestException as e:
                 logger.error(f"Failed to send alert via Twilio SMS: {e}")
                 # Log response body if available and indicates an error

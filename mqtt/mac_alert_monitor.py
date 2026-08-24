@@ -2,6 +2,7 @@ import paho.mqtt.client as mqtt
 import json
 import os
 import sqlite3
+import sys
 import logging
 import configparser
 import time # Added for timestamp comparison
@@ -14,6 +15,7 @@ ema_states = {} # Stores {'mac': (ema_value, last_seen_timestamp)}
 message_counter = 0 # Counter for periodic cleanup
 whitelist = set()
 node_locations = {}
+last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 db_conn = None
 db_cursor = None
 
@@ -21,19 +23,10 @@ db_cursor = None
 def load_app_config(config_path='config/config.ini'):
     """Loads configuration from INI file."""
     global config
-    parser = configparser.ConfigParser()
+    parser = configparser.ConfigParser(inline_comment_prefixes=('#', ';'))
     if not os.path.exists(config_path):
-        logging.error(f"Configuration file not found: {config_path}")
-        # Provide default values or exit? For now, let's try defaults.
-        # This part could be expanded to create a default config if missing.
-        config = { # Basic defaults if file is missing
-            'MQTT': {'Host': 'localhost', 'Port': 1883, 'Topic': 'meshtastic/receive'},
-            'Files': {'Whitelist': 'config/whitelist.txt', 'Nodes': 'config/nodes.json', 'Database': 'logs/detections.db'},
-            'Filtering': {'RSSIMin': -75, 'EMAlpha': 0.6},
-            'Logging': {'Level': 'INFO', 'Format': '%(asctime)s - %(levelname)s - %(message)s'}
-        }
-        logging.warning("Using default configuration values.")
-        return config # Return the default dict
+        raise SystemExit(f"Configuration file not found: {config_path}. "
+                         "Run from the project root or create config/config.ini.")
 
     try:
         parser.read(config_path)
@@ -66,8 +59,9 @@ def load_data_files():
             whitelist = {line.strip().upper() for line in f if line.strip()}
         logging.info(f"Loaded {len(whitelist)} MACs from {whitelist_file}")
     except FileNotFoundError:
-        logging.warning(f"Whitelist file not found: {whitelist_file}. Proceeding with empty whitelist.")
-        whitelist = set()
+        # An empty whitelist would flag every MAC as unknown and flood alerts.
+        raise SystemExit(f"Whitelist file not found: {whitelist_file}. "
+                         "Create it (one MAC per line) or fix the path in config.ini.")
 
     try:
         with open(nodes_file) as f:
@@ -131,6 +125,9 @@ def cleanup_ema_states():
         for mac in expired_macs:
             del ema_states[mac]
         logging.info(f"Cleaned up EMA state for {len(expired_macs)} expired MAC(s).")
+    # Prune alert-cooldown state on the same schedule (randomized MACs would grow it forever)
+    for mac in [m for m, ts in last_alert_times.items() if now_ts - ts > timeout_seconds]:
+        del last_alert_times[mac]
 
 
 def exponential_moving_average(mac, value):
@@ -166,18 +163,18 @@ def log_to_sqlite(mac, node, smoothed_rssi, timestamp_iso, lat, lon):
         logging.warning(f"Database connection not available, skipping log for MAC {mac}.")
 
 
-def on_connect(client, userdata, flags, rc):
-    """Callback for when the client connects to MQTT."""
+def on_connect(client, userdata, flags, reason_code, properties):
+    """Callback for when the client connects to MQTT (paho v2 API)."""
     mqtt_topic = config.get('MQTT', 'Topic', fallback='meshtastic/receive')
-    if rc == 0:
-        logging.info(f"Connected successfully to MQTT Broker.")
+    if not reason_code.is_failure:
+        logging.info("Connected successfully to MQTT Broker.")
         try:
             client.subscribe(mqtt_topic)
             logging.info(f"Subscribed to topic: {mqtt_topic}")
         except Exception as e:
             logging.error(f"Error subscribing to topic {mqtt_topic}: {e}")
     else:
-        logging.error(f"Failed to connect to MQTT Broker, return code {rc}")
+        logging.error(f"Failed to connect to MQTT Broker: {reason_code}")
 
 
 # --- Message Processing Logic ---
@@ -249,13 +246,20 @@ def process_detection(detection_data):
 
 
 def trigger_alert_if_needed(mac, node_id, status):
-    """Sends an alert if the detection status is 'unknown'."""
-    if status == "unknown":
-        logging.warning(f"Unknown MAC detected: {mac} from Node {node_id}. Sending alert.")
-        try:
-            send_alert(mac, node_id) # Assuming send_alert handles its own errors
-        except Exception as e:
-            logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
+    """Sends an alert if the detection status is 'unknown', rate-limited per MAC."""
+    if status != "unknown":
+        return
+    cooldown = config.getint('Filtering', 'AlertCooldownSeconds', fallback=300)
+    now_ts = time.time()
+    if now_ts - last_alert_times.get(mac, 0) < cooldown:
+        logging.debug(f"Alert for {mac} suppressed (cooldown {cooldown}s).")
+        return
+    last_alert_times[mac] = now_ts
+    logging.warning(f"Unknown MAC detected: {mac} from Node {node_id}. Sending alert.")
+    try:
+        send_alert(config, mac, node_id) # send_alert handles its own errors
+    except Exception as e:
+        logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
 
 
 def on_message(client, userdata, msg):
@@ -299,12 +303,8 @@ def main():
     """Main execution function."""
     global config # Ensure main uses the global config
 
-    # Load configuration first
+    # Load configuration first (raises SystemExit if missing/unreadable)
     config = load_app_config()
-    if not config:
-        # load_app_config already logged the error, maybe exit here
-        print("Exiting due to configuration load failure.", file=sys.stderr) # Use stderr for errors before logging is set up
-        return 1 # Indicate error exit status
 
     # Setup logging based on config
     setup_logging()
@@ -322,7 +322,7 @@ def main():
     mqtt_host = config.get('MQTT', 'Host', fallback='localhost')
     mqtt_port = config.getint('MQTT', 'Port', fallback=1883)
 
-    client = mqtt.Client()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
     client.on_message = on_message
 
@@ -357,5 +357,4 @@ def main():
     return 0 # Indicate successful exit
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main()) # Exit with the return code from main()

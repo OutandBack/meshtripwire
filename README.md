@@ -1,6 +1,8 @@
 *__NOTE: OaB is not directly associated with the Meshtastic project. This project is a proof-of-concept for creating additional usecases for Meshtastic and similar devices.__*
 
-# Meshtastic + Paxcounter Tripwire System
+# meshtripwire
+
+A Meshtastic-based wireless tripwire (Paxcounter-derived sensors).
 
 This project provides a hybrid LoRa + WiFi BLE detection system to monitor for unknown wireless devices on remote properties using Meshtastic nodes and Paxcounter firmware. It integrates with MQTT, Node-RED, SQLite, and modern notification platforms.
 
@@ -65,9 +67,9 @@ A worldmap dashboard shows:
     - Edit `config/config.ini` to set your MQTT broker details, file paths, filtering thresholds, and notification service credentials/settings.
     - Populate `config/whitelist.txt` with known MAC addresses (one per line).
     - Populate `config/nodes.json` with your Meshtastic node IDs and their corresponding GPS coordinates.
-3.  **Run Monitor**:
+3.  **Run Monitor** (from the project root, so relative config paths resolve):
     ```bash
-    python3 mqtt/mac_alert_monitor.py
+    venv/bin/python -m mqtt.mac_alert_monitor
     ```
 4.  **Setup Node-RED (Optional)**:
     - Import `node-red/flows.json` into your Node-RED instance.
@@ -76,7 +78,7 @@ A worldmap dashboard shows:
 ## 📦 Folder Structure
 
 ```
-tripwire-system/
+meshtripwire/
 ├── config/
 │   ├── config.ini          # Main configuration
 │   ├── nodes.json          # Node ID to GPS mapping

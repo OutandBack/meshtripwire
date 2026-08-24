@@ -6,10 +6,16 @@ echo "🔧 Updating system..."
 sudo apt update
 
 echo "📦 Installing dependencies..."
-sudo apt install -y mosquitto mosquitto-clients python3-pip sqlite3 node-red
+sudo apt install -y mosquitto mosquitto-clients python3-pip python3-venv sqlite3 node-red
 
-echo "🐍 Installing Python packages..."
-pip3 install paho-mqtt requests
+# Get the directory where the script is located
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+PROJECT_ROOT=$(dirname "$SCRIPT_DIR") # Assumes setup is one level down from root
+
+echo "🐍 Installing Python packages into venv..."
+# System-wide pip installs fail on modern Raspberry Pi OS (PEP 668); use a venv
+python3 -m venv "$PROJECT_ROOT/venv"
+"$PROJECT_ROOT/venv/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
 
 echo "✅ Enabling Mosquitto MQTT broker..."
 sudo systemctl enable mosquitto
@@ -20,9 +26,7 @@ sudo systemctl enable nodered.service
 sudo systemctl start nodered.service
 
 echo "📁 Creating logs directory relative to the script location..."
-# Get the directory where the script is located
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-PROJECT_ROOT=$(dirname "$SCRIPT_DIR") # Assumes setup is one level down from root
 mkdir -p "$PROJECT_ROOT/logs"
 
-echo "✅ Setup complete. You can now configure config/config.ini and run the monitor."
+echo "✅ Setup complete. Configure config/config.ini, then run:"
+echo "   cd $PROJECT_ROOT && venv/bin/python -m mqtt.mac_alert_monitor"
