@@ -10,12 +10,14 @@ Not affiliated with the Meshtastic project. Proof of concept, provided as-is.
 flowchart LR
     subgraph sensors["MAC sources — publish {mac, from, rssi}"]
         S1["Base scanner<br/>WiFi + BLE<br/>(sensors/base_scanner.py)"]
-        S2["ESP32 sniffer nodes<br/>WiFi promiscuous<br/>(firmware/esp32_sniffer)"]
+        S2["ESP32 sniffer node<br/>WiFi promiscuous<br/>(firmware/esp32_sniffer)"]
+        S4["ESP32 sniffer node<br/>BLE scan<br/>(firmware/esp32_sniffer)"]
         S3["USB Meshtastic bridge<br/>(mqtt/serial_bridge.py)"]
     end
 
     S1 -->|MQTT| BROKER
     S2 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
+    S4 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
     S3 -->|MQTT| BROKER
 
     subgraph base["Raspberry Pi base station (Docker)"]
