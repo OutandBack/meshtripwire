@@ -72,6 +72,32 @@ sensor. Available sources, in order of effort:
 - **Custom sensor firmware** — the original vision, scan + LoRa in one node.
   Not provided; would emit the same `{mac, from, rssi}` over any mesh.
 
+### Off-grid sensors (LoRa relay)
+
+For sensors out of WiFi range, an ESP32 sniffer backhauls its sightings over a
+LoRa mesh instead of MQTT. End-to-end:
+
+```
+ESP32 sniffer ──serial──▶ field mesh node ──LoRa──▶ base mesh node ──USB──▶ base station
+ OUTPUT_SERIAL 1          Meshtastic Serial module              serial_bridge.py ─▶ MQTT ─▶ monitor
+```
+
+1. **Sniffer** — build `firmware/esp32_sniffer/` with `OUTPUT_SERIAL 1`. It
+   prints one `{"mac","from","rssi"}` JSON line per sighting to its UART.
+2. **Field mesh node** — wire the ESP32's TX to a nearby Meshtastic node's RX
+   (shared ground) and enable its Serial module in text mode:
+   `meshtastic --set serial.enabled true --set serial.mode TEXTMSG --set serial.baud BAUD_115200`.
+   Each line goes out as a LoRa text message. (MeshCore/Reticulum work too — any
+   transport that carries the text line.)
+3. **Base mesh node** — a Meshtastic node on USB to the Pi receives the messages.
+4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0` reads
+   them and republishes the JSON to the broker; the monitor treats it like any
+   other sighting. The same bridge also flags node *presence* (see the USB
+   LoRa-mesh bridge above), so one process covers both.
+
+Keep the sniffer's `COOLDOWN_MS` high and `RSSI_MIN` tight — LoRa airtime is
+scarce, and MAC randomization can generate more sightings than the channel carries.
+
 ### Off-grid alerts (RelayFabric)
 
 ntfy, webhook, and Twilio all need the Internet — the opposite of the remote
