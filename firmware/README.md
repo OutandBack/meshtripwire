@@ -8,10 +8,20 @@ no changes.
 ## Flash it
 
 1. Arduino IDE with the ESP32 board package (or PlatformIO with `platform = espressif32`).
-2. Install the **PubSubClient** library (Nick O'Leary).
-3. Edit the config block at the top of `esp32_sniffer/esp32_sniffer.ino`: WiFi
-   credentials, `MQTT_HOST`/`MQTT_PORT`, `NODE_ID`, and `RSSI_MIN`.
+2. Install the **PubSubClient** library (Nick O'Leary). BLE mode also uses the
+   ESP32 core's built-in `BLEDevice` library (no separate install).
+3. Pick the radio with `SCAN_MODE` (`SCAN_WIFI` or `SCAN_BLE`), then edit the
+   config block: WiFi credentials, `MQTT_HOST`/`MQTT_PORT`, `NODE_ID`, `RSSI_MIN`.
 4. Select your ESP32 board, flash, open Serial Monitor at 115200 to watch.
+
+## WiFi vs BLE mode
+
+One board sniffs one radio — the ESP32-C3's single radio can't do promiscuous
+WiFi and BLE at the same time. Deploy a mix: `SCAN_WIFI` nodes catch phones/APs
+on 2.4 GHz WiFi, `SCAN_BLE` nodes catch earbuds, watches, tags, and phones
+advertising over BLE. BLE mode coexists cleanly with the WiFi/MQTT uplink; WiFi
+mode has to time-slice sniffing against the uplink, so serial→LoRa backhaul is
+smoother there.
 
 ## Backhaul modes
 

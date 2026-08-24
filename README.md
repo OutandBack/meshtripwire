@@ -60,8 +60,8 @@ sensor. Available sources, in order of effort:
   MACs on the machine running the broker. No firmware; range limited to the base
   station's radios. `python -m sensors.base_scanner --node base --ble [--wifi wlan1mon]`
 - **ESP32 sniffer nodes** (`firmware/esp32_sniffer/`) — dedicated ESP32s doing
-  promiscuous WiFi capture, backhauling over WiFi/MQTT or serial→Meshtastic→LoRa.
-  Distributed coverage. See `firmware/README.md`.
+  promiscuous WiFi *or* BLE capture (one radio per board), backhauling over
+  WiFi/MQTT or serial→Meshtastic→LoRa. Distributed coverage. See `firmware/README.md`.
 - **USB Meshtastic bridge** (`mqtt/serial_bridge.py`) — forwards RF packets a
   locally attached node hears; the "MAC" is the transmitting node's radio, so
   this is a tripwire for people carrying Meshtastic devices, not general WiFi/BLE.
@@ -91,7 +91,7 @@ cheap-clone tier; brand-name versions cost more.
 | | microSD 16GB+ | $6 | Or boot from USB/SSD. |
 | **Base scanner radios** (option 1) | USB BLE adapter | $8–12 | Any BlueZ-compatible dongle; many Pis have BLE built in ($0). |
 | | USB WiFi adapter w/ monitor mode | $10–15 | Needs an mac80211 monitor-capable chipset (e.g. RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
-| **WiFi sniffer node** (option 2) | ESP32-C3 SuperMini | $2–3 | Cheapest sniffer; WiFi-range backhaul only. Deploy several. |
+| **WiFi/BLE sniffer node** (option 2) | ESP32-C3 SuperMini | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). WiFi-range backhaul only. Onboard PCB antenna is often detuned on these clones → shorter range; prefer a board with a u.FL/external antenna if coverage matters. Deploy several. |
 | | ESP32-WROOM-32 DevKitC | $3–5 | Dual-core alternative, no real advantage for sniffing. |
 | **Off-grid / LoRa node** | Heltec WiFi LoRa 32 V3 | $12–18 | LoRa backhaul for out-of-WiFi-range sensors; runs Meshtastic. Same board as the reference node. |
 | | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
