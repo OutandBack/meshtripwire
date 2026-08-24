@@ -1,15 +1,26 @@
-"""Check payload_for's two modes. Run: python -m mqtt.test_serial_bridge"""
+"""Check payload_for's modes. Run: python -m mqtt.test_serial_bridge"""
 import json
 
-from mqtt.serial_bridge import payload_for
+from mqtt.serial_bridge import parse_compact, payload_for
 
 NODES = {'!aabb': {'user': {'macaddr': '10:51:DB:29:DC:94'},
                    'position': {'latitude': 34.05, 'longitude': -118.24}}}
 
-# Mode 1: relayed sniffer text message republished verbatim, node DB ignored
+# Mode 1a: relayed JSON sighting, node DB ignored
 relayed = '{"mac":"AA:BB:CC:11:22:33","from":"sensor-01","rssi":-64}'
 out = payload_for({'decoded': {'text': relayed}, 'rxRssi': -90}, NODES)
 assert json.loads(out)['mac'] == 'AA:BB:CC:11:22:33', out
+
+# Mode 1b: compact "AABBCC112233,-64" -> reconstruct MAC, map relay node to name
+assert parse_compact('AABBCC112233,-64') == ('AA:BB:CC:11:22:33', -64)
+assert parse_compact('bad') is None
+assert parse_compact('AABBCC112233,notint') is None
+out = payload_for({'decoded': {'text': 'AABBCC112233,-64'}, 'fromId': '!aabb'},
+                  NODES, sensor_map={'!aabb': 'gate'})
+assert json.loads(out) == {'mac': 'AA:BB:CC:11:22:33', 'from': 'gate', 'rssi': -64}, out
+# No sensor_map entry -> fall back to the raw relay node id
+out = payload_for({'decoded': {'text': 'AABBCC112233,-64'}, 'fromId': '!zzzz'}, NODES)
+assert json.loads(out)['from'] == '!zzzz', out
 
 # Mode 2: no text -> synthesize from the transmitting node's own MAC + GPS
 out = payload_for({'fromId': '!aabb', 'rxRssi': -70}, NODES)

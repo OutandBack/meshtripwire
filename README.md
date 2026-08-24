@@ -83,20 +83,26 @@ ESP32 sniffer ──serial──▶ field mesh node ──LoRa──▶ base mes
 ```
 
 1. **Sniffer** — build `firmware/esp32_sniffer/` with `OUTPUT_SERIAL 1`. It
-   prints one `{"mac","from","rssi"}` JSON line per sighting to its UART.
+   prints one compact line per sighting to its UART: `AABBCC112233,-64` (MAC hex,
+   no colons, then RSSI) — ~16 bytes vs ~56 for JSON. To save airtime it only
+   reports MACs *not* in the on-device `WHITELIST[]`, so your own gear never hits
+   the mesh.
 2. **Field mesh node** — wire the ESP32's TX to a nearby Meshtastic node's RX
    (shared ground) and enable its Serial module in text mode:
    `meshtastic --set serial.enabled true --set serial.mode TEXTMSG --set serial.baud BAUD_115200`.
    Each line goes out as a LoRa text message. (MeshCore/Reticulum work too — any
    transport that carries the text line.)
 3. **Base mesh node** — a Meshtastic node on USB to the Pi receives the messages.
-4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0` reads
-   them and republishes the JSON to the broker; the monitor treats it like any
-   other sighting. The same bridge also flags node *presence* (see the USB
-   LoRa-mesh bridge above), so one process covers both.
+4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0
+   [--sensor-map config/sensor_nodes.json]` parses the compact line, restores the
+   MAC, tags it with the sensor name mapped from the relay node id, and republishes
+   full JSON to the broker. The monitor treats it like any other sighting, and the
+   same bridge still flags node *presence* (see the USB LoRa-mesh bridge above).
 
-Keep the sniffer's `COOLDOWN_MS` high and `RSSI_MIN` tight — LoRa airtime is
-scarce, and MAC randomization can generate more sightings than the channel carries.
+The compact format, on-device whitelist, and node→name mapping together cut LoRa
+traffic ~10–20× (see the bandwidth notes in `firmware/README.md`). Also keep
+`COOLDOWN_MS` high and `RSSI_MIN` tight — MAC randomization can still generate
+more sightings than the channel carries.
 
 ### Off-grid alerts (RelayFabric)
 

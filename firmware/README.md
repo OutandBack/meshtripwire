@@ -36,6 +36,25 @@ smoother there.
   the broker (it handles this automatically alongside node-presence detection).
   This is the off-grid path; the mesh stack is your choice.
 
+## Conserving LoRa bandwidth
+
+LoRa is a few kbps with legal duty-cycle limits, so the serial→LoRa path is
+tuned to send as little as possible. Three measures, all on by default:
+
+- **Compact wire format**: over serial the sketch emits `AABBCC112233,-64`
+  (~16 bytes) instead of JSON (~56). `serial_bridge.py` expands it back.
+- **On-device whitelist**: edit `WHITELIST[]` in the sketch with your known-good
+  MACs; those are never transmitted, so airtime is spent only on unknowns.
+- **Sensor id dropped on the wire**: the relaying mesh node's own address already
+  identifies the sensor. Map node id → friendly name at the base with
+  `serial_bridge --sensor-map` (see `config/sensor_nodes.json.example`).
+
+Together these cut traffic roughly 10–20×. If you still saturate the channel:
+raise `COOLDOWN_MS`, tighten `RSSI_MIN`, or use a faster Meshtastic modem preset
+(ShortFast) if range allows. For the absolute minimum, a binary payload (6-byte
+MAC + 1-byte RSSI ≈ 8 bytes) via the Serial module's PROTO mode would shave more,
+at the cost of decoding on both ends — not implemented here.
+
 ## Reality checks
 
 - **MAC randomization**: modern phones rotate their WiFi MAC, so most sightings

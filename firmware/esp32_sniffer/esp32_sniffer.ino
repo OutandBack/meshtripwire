@@ -38,10 +38,18 @@ const uint16_t MQTT_PORT = 1883;
 const char* MQTT_USER   = "";           // "" = anonymous
 const char* MQTT_PASS   = "";
 const char* MQTT_TOPIC  = "meshtastic/receive";
-const char* NODE_ID     = "sensor-01";  // tag for sightings from this node
+const char* NODE_ID     = "sensor-01";  // tag for MQTT sightings (serial/LoRa maps by relay node instead)
 const int   RSSI_MIN    = -85;          // ignore weaker frames (tune per deployment)
 const uint32_t COOLDOWN_MS = 60000;     // per-MAC re-publish suppression
 const uint8_t  CHANNEL_MAX = 11;        // WiFi: hop 1..CHANNEL_MAX (13/14 region-dependent)
+
+// Known MACs to IGNORE — only unknowns are reported, so LoRa airtime isn't spent
+// on your own gear. Uppercase, colon-separated. Add cameras, laptops, sensors...
+// ponytail: compile-time list; if it changes often, push it OTA instead of reflashing.
+const char* WHITELIST[] = {
+  "00:00:00:00:00:00",  // placeholder — replace with your fixed-MAC devices
+};
+const int WHITELIST_N = sizeof(WHITELIST) / sizeof(WHITELIST[0]);
 // ----------------------------
 
 #include <WiFi.h>
@@ -78,16 +86,29 @@ bool recently_seen(const char* mac) {
   return false;
 }
 
+bool is_whitelisted(const char* mac) {
+  for (int i = 0; i < WHITELIST_N; i++)
+    if (strcmp(WHITELIST[i], mac) == 0) return true;
+  return false;
+}
+
 // mac must be an uppercase "AA:BB:CC:DD:EE:FF" string.
 void report(const char* mac, int rssi) {
   if (rssi < RSSI_MIN) return;
+  if (is_whitelisted(mac)) return;   // don't spend airtime on known gear
   if (recently_seen(mac)) return;
+#if OUTPUT_SERIAL
+  // Compact "AABBCC112233,-64" over LoRa: strip colons, drop the node id (the
+  // relay node's own address identifies the sensor; serial_bridge maps it back).
+  char line[24];
+  char* p = line;
+  for (const char* c = mac; *c; c++) if (*c != ':') *p++ = *c;
+  p += snprintf(p, line + sizeof(line) - p, ",%d", rssi);
+  Serial.println(line);
+#else
   char payload[96];
   snprintf(payload, sizeof(payload),
            "{\"mac\":\"%s\",\"from\":\"%s\",\"rssi\":%d}", mac, NODE_ID, rssi);
-#if OUTPUT_SERIAL
-  Serial.println(payload);
-#else
   if (mqtt.connected()) mqtt.publish(MQTT_TOPIC, payload);
 #endif
 }
