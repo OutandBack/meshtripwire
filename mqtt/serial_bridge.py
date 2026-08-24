@@ -1,11 +1,15 @@
 """Bridge a USB Meshtastic node into the tripwire MQTT feed.
 
 Stock Meshtastic firmware doesn't publish the {"mac","from","rssi"} JSON this
-project consumes. This bridge listens on a locally attached node and forwards
-every RF packet it hears as a sighting: the sender's node ID, its MAC from the
-node DB (when known), the receive RSSI, and GPS if the node DB has a fix.
-That makes any transmitting Meshtastic device near the property a detection —
-the Paxcounter WiFi/BLE path still needs custom sensor firmware.
+project consumes. This bridge listens on a locally attached node and feeds the
+MQTT topic in two ways:
+
+  1. Relayed sniffer sightings: a remote ESP32 sniffer prints JSON to a field
+     Meshtastic node's Serial module, which sends it over LoRa as a text message.
+     The bridge republishes that JSON verbatim — real WiFi/BLE MACs, off-grid.
+  2. Node presence: for any other RF packet, it synthesizes a sighting from the
+     transmitting node's own MAC (from the node DB), so any Meshtastic device
+     near the property is itself a detection.
 
 Usage (host-side, next to the Docker stack):
     pip install meshtastic
@@ -16,6 +20,41 @@ import json
 import time
 
 import paho.mqtt.client as mqtt
+
+
+def payload_for(packet, nodes):
+    """Return the MQTT payload string for one received packet, or None to skip.
+
+    nodes is the interface's node DB ({nodeId: {...}}). Pure function so it's
+    testable without a live Meshtastic interface.
+    """
+    # Mode 1: a relayed sniffer sighting arriving as a Meshtastic text message.
+    # The real MAC and RSSI are inside the JSON; the LoRa hop's RSSI is irrelevant.
+    text = packet.get('decoded', {}).get('text')
+    if text:
+        try:
+            sighting = json.loads(text)
+        except (ValueError, TypeError):
+            sighting = None
+        if isinstance(sighting, dict) and sighting.get('mac'):
+            return text  # republish verbatim
+
+    # Mode 2: presence of the transmitting node itself — tag it by its own MAC.
+    rssi = packet.get('rxRssi')
+    if not rssi:
+        return None  # locally generated packet, not an RF sighting
+    sender = packet.get('fromId') or str(packet.get('from'))
+    info = (nodes or {}).get(sender, {})
+    sighting = {
+        'mac': info.get('user', {}).get('macaddr', ''),
+        'from': sender,
+        'rssi': rssi,
+    }
+    pos = info.get('position', {})
+    if pos.get('latitude') is not None:
+        sighting['lat'] = pos['latitude']
+        sighting['lon'] = pos['longitude']
+    return json.dumps(sighting)
 
 
 def main():
@@ -35,22 +74,10 @@ def main():
     client.loop_start()
 
     def on_receive(packet, interface):
-        rssi = packet.get('rxRssi')
-        if not rssi:
-            return # Locally generated packet, not an RF sighting
-        sender = packet.get('fromId') or str(packet.get('from'))
-        info = (interface.nodes or {}).get(sender, {})
-        sighting = {
-            'mac': info.get('user', {}).get('macaddr', ''),
-            'from': sender,
-            'rssi': rssi,
-        }
-        pos = info.get('position', {})
-        if pos.get('latitude') is not None:
-            sighting['lat'] = pos['latitude']
-            sighting['lon'] = pos['longitude']
-        client.publish(args.topic, json.dumps(sighting))
-        print(f"forwarded: {sighting}")
+        payload = payload_for(packet, interface.nodes)
+        if payload:
+            client.publish(args.topic, payload)
+            print(f"forwarded: {payload}")
 
     pub.subscribe(on_receive, 'meshtastic.receive')
     iface = meshtastic.serial_interface.SerialInterface(devPath=args.serial_port)

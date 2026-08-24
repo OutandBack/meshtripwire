@@ -31,8 +31,9 @@ smoother there.
 - **Serial → LoRa mesh** (`OUTPUT_SERIAL 1`): the sketch prints one JSON line per
   sighting to Serial instead. Wire the ESP32 TX to the RX of a nearby LoRa-mesh
   node — Meshtastic (Serial module, `TEXTMSG`/`PROTO` mode), MeshCore, or a
-  Reticulum interface — which relays each line over LoRa to the base, where a
-  serial/MQTT shim (adapt `mqtt/serial_bridge.py`) republishes to the broker.
+  Reticulum interface — which relays each line over LoRa to the base. There,
+  `mqtt/serial_bridge.py` receives the text message and republishes the JSON to
+  the broker (it handles this automatically alongside node-presence detection).
   This is the off-grid path; the mesh stack is your choice.
 
 ## Reality checks
