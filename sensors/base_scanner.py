@@ -87,6 +87,9 @@ def main():
     ap.add_argument('--broker-port', type=int, default=1883)
     ap.add_argument('--topic', default='meshtastic/receive')
     ap.add_argument('--cooldown', type=float, default=60, help='seconds between re-publishing the same MAC')
+    ap.add_argument('--heartbeat-topic', default='meshtripwire/heartbeat',
+                    help='publish liveness here so the monitor watchdog knows this sensor is up')
+    ap.add_argument('--heartbeat-interval', type=float, default=120, help='seconds between heartbeats')
     args = ap.parse_args()
 
     if not args.ble and not args.wifi:
@@ -106,7 +109,8 @@ def main():
         w.start()
     try:
         while True:
-            time.sleep(60)
+            client.publish(args.heartbeat_topic, json.dumps({"node": args.node}))
+            time.sleep(args.heartbeat_interval)
     except KeyboardInterrupt:
         print("stopping")
 

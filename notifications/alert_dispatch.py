@@ -11,9 +11,14 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 10 # seconds; alerts run on the MQTT thread, a hung POST would stall detection
 
-def send_alert(app_config, mac, node):
-    """Sends alerts via configured channels (ntfy, webhook, Twilio)."""
-    message = f"ALERT: Unknown MAC {mac} detected by node {node}."
+def send_alert(app_config, mac, node, message=None):
+    """Sends alerts via configured channels (ntfy, webhook, Twilio, MQTT).
+
+    message overrides the default text (used for sensor-offline and other
+    non-detection alerts); mac/node still tag the MQTT alert payload.
+    """
+    if message is None:
+        message = f"ALERT: Unknown MAC {mac} detected by node {node}."
     logger.info(f"Dispatching alert: {message}")
 
     # --- MQTT Alert (off-grid relay / Node-RED / mesh downlinks on the same broker) ---

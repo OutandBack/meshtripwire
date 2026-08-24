@@ -5,6 +5,7 @@ import sqlite3
 import sys
 import logging
 import configparser
+import threading
 import time # Added for timestamp comparison
 from datetime import datetime, timedelta, timezone
 from notifications.alert_dispatch import send_alert
@@ -17,6 +18,10 @@ whitelist = set()
 whitelist_mtime = 0.0
 node_locations = {}
 last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
+dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time alerting
+sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
+sensor_offline = set() # Nodes currently flagged offline (alert once, until they return)
+manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 db_conn = None
 db_cursor = None
 
@@ -162,9 +167,11 @@ def cleanup_ema_states():
         for mac in expired_macs:
             del ema_states[mac]
         logging.info(f"Cleaned up EMA state for {len(expired_macs)} expired MAC(s).")
-    # Prune alert-cooldown state on the same schedule (randomized MACs would grow it forever)
+    # Prune alert-cooldown and dwell state on the same schedule (randomized MACs would grow forever)
     for mac in [m for m, ts in last_alert_times.items() if now_ts - ts > timeout_seconds]:
         del last_alert_times[mac]
+    for mac in [m for m, (_first, last) in dwell_states.items() if now_ts - last > timeout_seconds]:
+        del dwell_states[mac]
 
 
 def exponential_moving_average(mac, value):
@@ -205,11 +212,16 @@ def on_connect(client, userdata, flags, reason_code, properties):
     mqtt_topic = config.get('MQTT', 'Topic', fallback='meshtastic/receive')
     if not reason_code.is_failure:
         logging.info("Connected successfully to MQTT Broker.")
-        try:
-            client.subscribe(mqtt_topic)
-            logging.info(f"Subscribed to topic: {mqtt_topic}")
-        except Exception as e:
-            logging.error(f"Error subscribing to topic {mqtt_topic}: {e}")
+        topics = [mqtt_topic]
+        hb = config.get('Sensors', 'HeartbeatTopic', fallback='').strip()
+        ctrl = config.get('Arming', 'ControlTopic', fallback='').strip()
+        topics += [t for t in (hb, ctrl) if t]
+        for t in topics:
+            try:
+                client.subscribe(t)
+                logging.info(f"Subscribed to topic: {t}")
+            except Exception as e:
+                logging.error(f"Error subscribing to topic {t}: {e}")
     else:
         logging.error(f"Failed to connect to MQTT Broker: {reason_code}")
 
@@ -288,9 +300,91 @@ def process_detection(detection_data):
     return status
 
 
+def passes_dwell(mac):
+    """True once a MAC has persisted at least DwellSeconds (0 = alert on first sight).
+
+    Filters out devices that merely pass by (a car on the road) versus ones that
+    linger (someone on the property). A gap longer than StateTimeoutSeconds resets
+    the timer, so a device that leaves and returns is treated as a fresh arrival.
+    """
+    dwell = config.getint('Filtering', 'DwellSeconds', fallback=0)
+    timeout = config.getint('Filtering', 'StateTimeoutSeconds', fallback=3600)
+    now = time.time()
+    first, last = dwell_states.get(mac, (now, now))
+    if now - last > timeout:
+        first = now # gone and returned -> new arrival
+    dwell_states[mac] = (first, now)
+    return now - first >= dwell
+
+
+def _in_arm_window(schedule, now):
+    """schedule is 'HH:MM-HH:MM' (local time); handles windows that wrap midnight."""
+    try:
+        start_s, end_s = schedule.split('-')
+        sh, sm = (int(x) for x in start_s.split(':'))
+        eh, em = (int(x) for x in end_s.split(':'))
+    except (ValueError, AttributeError):
+        logging.warning(f"Invalid Arming Schedule '{schedule}'; treating as always armed.")
+        return True
+    cur = now.hour * 60 + now.minute
+    start, end = sh * 60 + sm, eh * 60 + em
+    if start <= end:
+        return start <= cur < end
+    return cur >= start or cur < end # wraps past midnight (e.g. 22:00-06:00)
+
+
+def is_armed():
+    """Whether alerts should fire now: manual override wins, else the schedule."""
+    if manual_armed is not None:
+        return manual_armed
+    schedule = config.get('Arming', 'Schedule', fallback='').strip()
+    if not schedule:
+        return True
+    return _in_arm_window(schedule, datetime.now())
+
+
+def note_sensor_seen(node):
+    """Record that a sensor node is alive (from a detection or a heartbeat)."""
+    sensor_last_seen[node] = time.time()
+
+
+def check_sensors():
+    """Watchdog: alert if any expected sensor goes silent past SensorTimeoutSeconds.
+
+    Runs on its own timer, not on message traffic — the whole point is to notice
+    silence, which by definition produces no messages.
+    """
+    expected = [s.strip() for s in config.get('Sensors', 'ExpectedSensors', fallback='').split(',') if s.strip()]
+    if not expected:
+        return
+    timeout = config.getint('Sensors', 'SensorTimeoutSeconds', fallback=900)
+    now = time.time()
+    for node in expected:
+        silent = now - sensor_last_seen.get(node, 0)
+        if silent > timeout and node not in sensor_offline:
+            sensor_offline.add(node)
+            if is_armed():
+                logging.warning(f"Sensor '{node}' offline: no data for {int(silent)}s.")
+                try:
+                    send_alert(config, node, node,
+                               message=f"Sensor '{node}' offline: no data for {int(silent)}s.")
+                except Exception as e:
+                    logging.error(f"Error sending sensor-offline alert for {node}: {e}")
+        elif silent <= timeout and node in sensor_offline:
+            sensor_offline.discard(node)
+            logging.info(f"Sensor '{node}' back online.")
+
+
 def trigger_alert_if_needed(mac, node_id, status):
-    """Sends an alert if the detection status is 'unknown', rate-limited per MAC."""
+    """Sends an alert if the detection status is 'unknown', gated by arming, dwell,
+    and a per-MAC cooldown."""
     if status != "unknown":
+        return
+    if not is_armed():
+        logging.debug(f"Disarmed; alert for {mac} suppressed.")
+        return
+    if not passes_dwell(mac):
+        logging.debug(f"Dwell not met for {mac}; alert deferred.")
         return
     cooldown = config.getint('Filtering', 'AlertCooldownSeconds', fallback=300)
     now_ts = time.time()
@@ -323,6 +417,18 @@ def on_message(client, userdata, msg):
                 logging.error(f"Failed to commit batch to SQLite: {e}")
         message_counter = 0 # Reset counter
 
+    # --- Route control/heartbeat topics away from the detection pipeline ---
+    try:
+        if msg.topic == config.get('Arming', 'ControlTopic', fallback='').strip():
+            handle_control(msg.payload)
+            return
+        if msg.topic == config.get('Sensors', 'HeartbeatTopic', fallback='').strip():
+            handle_heartbeat(msg.payload)
+            return
+    except Exception as e:
+        logging.exception(f"Error handling control/heartbeat on {msg.topic}: {e}")
+        return
+
     # --- Message Handling Pipeline ---
     try:
         # 1. Parse and Validate
@@ -330,6 +436,9 @@ def on_message(client, userdata, msg):
         parsed_data = parse_mqtt_message(msg.payload, msg.topic)
         if not parsed_data:
             return # Skip if parsing failed or data below threshold
+
+        # A detection is also proof the reporting sensor is alive
+        note_sensor_seen(parsed_data["node_id"])
 
         # 2. Process Detection (EMA, Whitelist, Location, Log)
         status = process_detection(parsed_data)
@@ -340,6 +449,36 @@ def on_message(client, userdata, msg):
     except Exception as e:
         # Catch-all for unexpected errors during the processing pipeline
         logging.exception(f"Unexpected error in on_message handler for topic {msg.topic}: {e}")
+
+
+def handle_control(payload_bytes):
+    """Arm/disarm control message: 'armed', 'disarmed', or 'auto' (follow schedule)."""
+    global manual_armed
+    cmd = payload_bytes.decode(errors='replace').strip().lower()
+    if cmd == 'armed':
+        manual_armed = True
+    elif cmd == 'disarmed':
+        manual_armed = False
+    elif cmd == 'auto':
+        manual_armed = None
+    else:
+        logging.warning(f"Unknown arming command: {cmd!r} (expected armed/disarmed/auto).")
+        return
+    logging.info(f"Arming override set to {cmd} (armed now: {is_armed()}).")
+
+
+def handle_heartbeat(payload_bytes):
+    """Heartbeat message: JSON {'node': id} or a bare node id string."""
+    text = payload_bytes.decode(errors='replace').strip()
+    node = None
+    try:
+        obj = json.loads(text)
+        node = obj.get('node') if isinstance(obj, dict) else None
+    except (ValueError, TypeError):
+        node = text or None
+    if node:
+        note_sensor_seen(str(node))
+        logging.debug(f"Heartbeat from sensor '{node}'.")
 
 
 # --- Main Execution ---
@@ -379,6 +518,23 @@ def main():
     client.on_connect = on_connect
     client.on_message = on_message
 
+    # Sensor watchdog runs on its own timer — silence produces no messages, so it
+    # can't be driven by the message loop. Only started if sensors are expected.
+    stop_watchdog = threading.Event()
+    if config.get('Sensors', 'ExpectedSensors', fallback='').strip():
+        timeout = config.getint('Sensors', 'SensorTimeoutSeconds', fallback=900)
+        interval = max(30, timeout // 4)
+
+        def watchdog():
+            while not stop_watchdog.wait(interval):
+                try:
+                    check_sensors()
+                except Exception as e:
+                    logging.error(f"Sensor watchdog error: {e}")
+
+        threading.Thread(target=watchdog, daemon=True).start()
+        logging.info(f"Sensor watchdog active (every {interval}s).")
+
     try:
         logging.info(f"Attempting to connect to MQTT broker at {mqtt_host}:{mqtt_port}...")
         client.connect(mqtt_host, mqtt_port, 60)
@@ -393,6 +549,7 @@ def main():
         logging.exception(f"An unexpected error occurred in the main loop: {e}")
     finally:
         logging.info("Shutting down...")
+        stop_watchdog.set()
         if client.is_connected():
             logging.info("Disconnecting MQTT client...")
             client.disconnect()

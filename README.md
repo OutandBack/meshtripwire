@@ -206,8 +206,27 @@ All settings live in `config/config.ini`:
 
 - `[MQTT]` — broker host/port/topic; optional `Username`/`Password` and `UseTLS`/`CAFile`
 - `[Files]` — data file paths; `RetentionDays` prunes old detections (0 = keep forever)
-- `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`
+- `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`, `DwellSeconds`
+- `[Sensors]` — `ExpectedSensors`, `SensorTimeoutSeconds`, `HeartbeatTopic` (sensor-offline watchdog)
+- `[Arming]` — `Schedule`, `ControlTopic` (when alerts are allowed to fire)
 - `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS, and the MQTT alert output (`EnableMqtt`/`MqttAlertTopic`, for off-grid relay via RelayFabric)
+
+### Cutting false alarms
+
+Alerting on *every* unknown MAC is unusable in practice — MAC randomization means
+constant strangers. Three gates, all in `config.ini`:
+
+- **Dwell** (`DwellSeconds`) — only alert once a device has *persisted* that long,
+  so a car passing the fence is ignored and someone loitering isn't. The single
+  biggest false-positive reducer; try 120–300s.
+- **Arming** (`[Arming] Schedule = 22:00-06:00`) — only alert during away/asleep
+  hours. Or drive it live: publish `armed`/`disarmed`/`auto` to `ControlTopic`
+  (e.g. a phone-presence automation disarms while you're home).
+- **Sensor watchdog** (`[Sensors] ExpectedSensors = gate,fence`) — alerts if a
+  listed sensor goes silent past `SensorTimeoutSeconds`, so a dead node or downed
+  mesh link doesn't become a silent blind spot. Sensors count as alive via any
+  detection they report or a heartbeat on `HeartbeatTopic` (`base_scanner`
+  publishes these automatically).
 
 ## Log sync
 

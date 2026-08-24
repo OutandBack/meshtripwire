@@ -49,6 +49,48 @@ with mock.patch.object(monitor, 'send_alert') as sa:
     monitor.trigger_alert_if_needed('DE:AD:BE:EF:00:01', 'node01', 'unknown')
     assert sa.call_count == 2
 
+# Dwell-time: with DwellSeconds set, a first sighting defers; alert once dwelled
+monitor.last_alert_times.clear()
+monitor.dwell_states.clear()
+monitor.config.set('Filtering', 'DwellSeconds', '300')
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.trigger_alert_if_needed('DW:E1:00:00:00:01', 'node01', 'unknown')
+    assert sa.call_count == 0  # just arrived, hasn't dwelled
+    first, _ = monitor.dwell_states['DW:E1:00:00:00:01']
+    monitor.dwell_states['DW:E1:00:00:00:01'] = (first - 301, time.time())  # pretend it's lingered
+    monitor.trigger_alert_if_needed('DW:E1:00:00:00:01', 'node01', 'unknown')
+    assert sa.call_count == 1
+monitor.config.set('Filtering', 'DwellSeconds', '0')
+
+# Arming: disarmed suppresses; schedule window gates; manual override wins
+monitor.last_alert_times.clear()
+monitor.dwell_states.clear()
+monitor.manual_armed = False
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.trigger_alert_if_needed('AR:00:00:00:00:01', 'node01', 'unknown')
+    assert sa.call_count == 0  # disarmed
+monitor.manual_armed = None
+assert monitor._in_arm_window('22:00-06:00', datetime(2026, 1, 1, 23, 0)) is True   # inside wrap
+assert monitor._in_arm_window('22:00-06:00', datetime(2026, 1, 1, 12, 0)) is False  # outside wrap
+assert monitor._in_arm_window('09:00-17:00', datetime(2026, 1, 1, 12, 0)) is True   # normal window
+monitor.config.set('Arming', 'Schedule', '')
+assert monitor.is_armed() is True  # empty schedule = always armed
+
+# Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
+monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
+monitor.config.set('Sensors', 'SensorTimeoutSeconds', '900')
+monitor.sensor_offline.clear()
+monitor.sensor_last_seen.clear()
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.check_sensors()                      # never seen -> offline
+    assert sa.call_count == 1 and 'gate' in monitor.sensor_offline
+    monitor.check_sensors()                       # still offline -> no repeat
+    assert sa.call_count == 1
+    monitor.note_sensor_seen('gate')              # heartbeat/detection arrives
+    monitor.check_sensors()
+    assert 'gate' not in monitor.sensor_offline
+monitor.config.set('Sensors', 'ExpectedSensors', '')
+
 # Whitelist hot-reload: edits on disk apply without a restart
 with tempfile.TemporaryDirectory() as tmp:
     wl_path = os.path.join(tmp, 'whitelist.txt')
