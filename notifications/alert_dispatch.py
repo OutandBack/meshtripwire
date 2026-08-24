@@ -50,8 +50,16 @@ def send_alert(app_config, mac, node):
         ntfy_topic = app_config.get('Notifications', 'NtfyTopic', fallback=None)
         if ntfy_topic:
             try:
-                url = f"https://ntfy.sh/{ntfy_topic}"
-                response = requests.post(url, data=message.encode('utf-8'), timeout=REQUEST_TIMEOUT)
+                server = app_config.get('Notifications', 'NtfyServer', fallback='https://ntfy.sh').rstrip('/')
+                url = f"{server}/{ntfy_topic}"
+                # Token auth for private topics (ntfy account or self-hosted with ACLs).
+                # Without it, privacy on ntfy.sh rests entirely on the topic being unguessable.
+                headers = {}
+                token = app_config.get('Notifications', 'NtfyToken', fallback=None)
+                if token:
+                    headers['Authorization'] = f"Bearer {token}"
+                response = requests.post(url, data=message.encode('utf-8'),
+                                         headers=headers, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
                 logger.info(f"Sent alert to ntfy.sh topic: {ntfy_topic}")
             except requests.exceptions.RequestException as e:
