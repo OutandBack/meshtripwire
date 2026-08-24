@@ -1,5 +1,10 @@
-import requests
+import json
 import logging
+import os
+import time
+
+import requests
+import paho.mqtt.publish as mqtt_publish
 
 # Get a logger instance (consistent with the main script's logging)
 logger = logging.getLogger(__name__)
@@ -10,6 +15,35 @@ def send_alert(app_config, mac, node):
     """Sends alerts via configured channels (ntfy, webhook, Twilio)."""
     message = f"ALERT: Unknown MAC {mac} detected by node {node}."
     logger.info(f"Dispatching alert: {message}")
+
+    # --- MQTT Alert (off-grid relay / Node-RED / mesh downlinks on the same broker) ---
+    # A local relay (e.g. RelayFabric) subscribes here and carries the alert
+    # over LXMF/Reticulum/Meshtastic -- the paths that still work when there's
+    # no Internet for ntfy/webhook/Twilio. Reuses the [MQTT] broker settings,
+    # including auth/TLS (Mosquitto 2.x disables anonymous access by default).
+    if app_config.getboolean('Notifications', 'EnableMqtt', fallback=False):
+        alert_topic = app_config.get('Notifications', 'MqttAlertTopic', fallback='meshtripwire/alerts')
+        try:
+            auth = None
+            mqtt_user = app_config.get('MQTT', 'Username', fallback=None)
+            if mqtt_user:
+                auth = {"username": mqtt_user,
+                        "password": app_config.get('MQTT', 'Password', fallback=None)}
+            tls = None
+            if app_config.getboolean('MQTT', 'UseTLS', fallback=False):
+                cafile = app_config.get('MQTT', 'CAFile', fallback=None) or None
+                tls = {"ca_certs": cafile} if cafile else {}
+            mqtt_publish.single(
+                alert_topic,
+                json.dumps({"mac": mac, "node": node, "ts": int(time.time()), "message": message}),
+                qos=1,
+                hostname=os.environ.get('MQTT_HOST') or app_config.get('MQTT', 'Host', fallback='localhost'),
+                port=app_config.getint('MQTT', 'Port', fallback=1883),
+                auth=auth, tls=tls,
+            )
+            logger.info(f"Published alert to MQTT topic: {alert_topic}")
+        except Exception as e:
+            logger.error(f"Failed to publish alert to MQTT ({alert_topic}): {e}")
 
     # --- ntfy.sh Alert ---
     if app_config.getboolean('Notifications', 'EnableNtfy', fallback=False):

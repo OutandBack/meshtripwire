@@ -24,7 +24,8 @@ db_cursor = None
 def load_app_config(config_path='config/config.ini'):
     """Loads configuration from INI file."""
     global config
-    parser = configparser.ConfigParser(inline_comment_prefixes=('#', ';'))
+    # interpolation=None: the Logging Format value contains %(...)s placeholders
+    parser = configparser.ConfigParser(inline_comment_prefixes=('#', ';'), interpolation=None)
     if not os.path.exists(config_path):
         raise SystemExit(f"Configuration file not found: {config_path}. "
                          "Run from the project root or create config/config.ini.")
@@ -45,7 +46,8 @@ def setup_logging():
     log_level_str = config.get('Logging', 'Level', fallback='INFO').upper()
     log_format = config.get('Logging', 'Format', fallback='%(asctime)s - %(levelname)s - %(message)s')
     log_level = getattr(logging, log_level_str, logging.INFO) # Convert string to logging level
-    logging.basicConfig(level=log_level, format=log_format)
+    # force=True: earlier module-level logging calls implicitly installed a default handler
+    logging.basicConfig(level=log_level, format=log_format, force=True)
     logging.info(f"Logging configured to level {log_level_str}")
 
 

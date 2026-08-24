@@ -7,9 +7,11 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import mqtt.mac_alert_monitor as monitor
+import notifications.alert_dispatch as dispatch
 
 # Config parses (inline comments included) and required keys resolve
 monitor.load_app_config()
+monitor.setup_logging()  # would raise if interpolation mangled the %(asctime)s format
 assert monitor.config.getint('Filtering', 'StateTimeoutSeconds') == 3600
 assert monitor.config.getint('Filtering', 'AlertCooldownSeconds') == 300
 
@@ -75,5 +77,24 @@ with tempfile.TemporaryDirectory() as tmp:
     assert count() == 1
     monitor.db_conn.close()
     monitor.db_conn = monitor.db_cursor = None
+
+# MQTT alert output: publishes the JSON alert to the broker when EnableMqtt is on
+for ch in ('EnableNtfy', 'EnableWebhook', 'EnableTwilio'):
+    monitor.config.set('Notifications', ch, 'false')  # isolate the MQTT path
+monitor.config.set('Notifications', 'EnableMqtt', 'true')
+monitor.config.set('Notifications', 'MqttAlertTopic', 'meshtripwire/alerts')
+with mock.patch('paho.mqtt.publish.single') as single:
+    dispatch.send_alert(monitor.config, 'DE:AD:BE:EF:00:01', 'node01')
+    assert single.call_count == 1
+    assert single.call_args.args[0] == 'meshtripwire/alerts'
+    published = json.loads(single.call_args.args[1])
+    assert published['mac'] == 'DE:AD:BE:EF:00:01'
+    assert published['node'] == 'node01'
+    assert 'ALERT' in published['message']
+# Off by default: existing installs don't publish
+monitor.config.set('Notifications', 'EnableMqtt', 'false')
+with mock.patch('paho.mqtt.publish.single') as single:
+    dispatch.send_alert(monitor.config, 'DE:AD:BE:EF:00:01', 'node01')
+    assert single.call_count == 0
 
 print('smoke test OK')

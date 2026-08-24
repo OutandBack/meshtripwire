@@ -1,2 +1,3 @@
 paho-mqtt>=2.0
 requests
+# meshtastic  # host-side only, for mqtt/serial_bridge.py

@@ -16,9 +16,20 @@ Sensor nodes scan and forward sightings over LoRa. The base station runs Mosquit
 2. Drops signals below the RSSI threshold, smooths the rest with an EMA
 3. Checks the MAC against `config/whitelist.txt` (hot-reloaded on file change, no restart needed)
 4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`
-5. Alerts on unknown MACs via ntfy.sh, webhook, or Twilio SMS, rate-limited per MAC
+5. Alerts on unknown MACs via ntfy.sh, webhook, Twilio SMS, or an MQTT topic, rate-limited per MAC
 
 An optional Node-RED dashboard (`node-red/flows.json`) shows live sightings with a strong-signals-only toggle.
+
+### Off-grid alerts (RelayFabric)
+
+ntfy, webhook, and Twilio all need the Internet — the opposite of the remote
+sites this is built for. Set `EnableMqtt = true` in `[Notifications]` and the
+monitor publishes each alert (JSON: `mac`, `node`, `ts`, `message`) to
+`MqttAlertTopic` on the same broker. [RelayFabric](https://github.com/RelayFabric/RelayFabric)
+subscribes to that topic and relays alerts over **LXMF/Reticulum or a
+Meshtastic channel**, so they reach you with no cellular. See RelayFabric's
+`meshtripwire` plugin (formatted alerts) or `examples/meshtripwire.yaml` (relay
+with the generic `mqtt` plugin, no extra code).
 
 ## Setup
 
@@ -58,7 +69,7 @@ All settings live in `config/config.ini`:
 - `[MQTT]` — broker host/port/topic; optional `Username`/`Password` and `UseTLS`/`CAFile`
 - `[Files]` — data file paths; `RetentionDays` prunes old detections (0 = keep forever)
 - `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`
-- `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS
+- `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS, and the MQTT alert output (`EnableMqtt`/`MqttAlertTopic`, for off-grid relay via RelayFabric)
 
 ## Log sync
 

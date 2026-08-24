@@ -2,7 +2,8 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
-      - "1883:1883"
+      # Host port for LAN sensors/bridges; override if 1883 is taken (MQTT_PORT=1884 docker compose up)
+      - "${MQTT_PORT:-1883}:1883"
     volumes:
       - ./setup/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     restart: unless-stopped
