@@ -43,7 +43,7 @@ flowchart LR
 
 ## How it works
 
-Sensor nodes scan and forward sightings over LoRa. The base station runs Mosquitto and `mqtt/mac_alert_monitor.py`, which:
+Sensors scan for nearby MACs and publish sightings to the base station's MQTT broker (out-of-range nodes backhaul over LoRa first; see [Where MACs come from](#where-macs-come-from)). The base station runs Mosquitto and `mqtt/mac_alert_monitor.py`, which:
 
 1. Parses sightings from MQTT (`meshtastic/receive`)
 2. Drops signals below the RSSI threshold, smooths the rest with an EMA
@@ -91,9 +91,9 @@ cheap-clone tier; brand-name versions cost more.
 |------|------|-------|-------|
 | **Base station** | Raspberry Pi 4/5 (2GB+) | $35–60 | Runs the whole Docker stack. A Pi Zero 2 W (~$15) works for light loads. |
 | | microSD 16GB+ | $6 | Or boot from USB/SSD. |
-| **Base scanner radios** (option 1) | USB BLE adapter | $8–12 | Any BlueZ-compatible dongle; many Pis have BLE built in ($0). |
+| **Base scanner radios** | USB BLE adapter | $8–12 | Any BlueZ-compatible dongle; many Pis have BLE built in ($0). |
 | | USB WiFi adapter w/ monitor mode | $10–15 | Needs an mac80211 monitor-capable chipset (e.g. RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
-| **WiFi/BLE sniffer node** (option 2) | ESP32-C3 SuperMini | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). WiFi-range backhaul only. Onboard PCB antenna is often detuned on these clones → shorter range; prefer a board with a u.FL/external antenna if coverage matters. Deploy several. |
+| **WiFi/BLE sniffer node** | ESP32-C3 SuperMini | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). WiFi-range backhaul only. Onboard PCB antenna is often detuned on these clones → shorter range; prefer a board with a u.FL/external antenna if coverage matters. Deploy several. |
 | | ESP32-WROOM-32 DevKitC | $3–5 | Dual-core alternative, no real advantage for sniffing. |
 | **Off-grid / LoRa node** | Heltec WiFi LoRa 32 V3 | $12–18 | LoRa backhaul for out-of-WiFi-range sensors; runs Meshtastic. Same board as the reference node. |
 | | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
@@ -144,8 +144,8 @@ The base station alone detects nothing — add at least one MAC source.
 **Base scanner** (no hardware beyond the Pi's own radios):
 
 ```bash
-pip install bleak                                  # for --ble; scapy for --wifi
-python -m sensors.base_scanner --node base --ble   # add --wifi wlan1mon for WiFi
+venv/bin/pip install bleak                                  # for --ble; scapy for --wifi
+venv/bin/python -m sensors.base_scanner --node base --ble   # add --wifi wlan1mon for WiFi
 ```
 
 **ESP32 BLE sniffer** (`firmware/esp32_sniffer/`):
