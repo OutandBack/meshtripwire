@@ -1,107 +1,63 @@
-*__NOTE: OaB is not directly associated with the Meshtastic project. This project is a proof-of-concept for creating additional usecases for Meshtastic and similar devices.__*
-
 # meshtripwire
 
-A Meshtastic-based wireless tripwire (Paxcounter-derived sensors).
+Wireless tripwire for remote properties. ESP32 sensor nodes (Paxcounter-derived firmware + Meshtastic) detect nearby WiFi/BLE MAC addresses and relay them over LoRa to a Raspberry Pi base station, which filters, logs, and alerts on unknown devices.
 
-This project provides a hybrid LoRa + WiFi BLE detection system to monitor for unknown wireless devices on remote properties using Meshtastic nodes and Paxcounter firmware. It integrates with MQTT, Node-RED, SQLite, and modern notification platforms.
+Not affiliated with the Meshtastic project. Proof of concept, provided as-is.
 
-## 🏗 System Architecture
+**Caveats:**
+- Stock Paxcounter sends anonymized people *counts*, not per-MAC data — the sensor side requires custom firmware that publishes `{"mac", "from", "rssi"}` JSON to MQTT.
+- Modern phones randomize their MACs. Whitelist fixed devices (cameras, sensors, laptops); treat phone MACs as ephemeral.
 
-- **ESP32 Sensor Nodes (Paxcounter + Meshtastic)**: Scans for MACs, sends over LoRa
-- **Raspberry Pi Base Station**:
-  - Runs Mosquitto MQTT broker
-  - Runs `mqtt/mac_alert_monitor.py` to:
-    - Parse MQTT messages from Meshtastic nodes
-    - Filter sightings based on RSSI and whitelist (`config/whitelist.txt`)
-    - Apply Exponential Moving Average (EMA) smoothing to RSSI
-    - Log detections to SQLite (`logs/detections.db`)
-    - Trigger alerts via `notifications/alert_dispatch.py`
-  - Hosts a Node-RED dashboard (`node-red/flows.json`) for visualization
+## How it works
 
-## 📍 Static Node Location Support
+Sensor nodes scan and forward sightings over LoRa. The base station runs Mosquitto and `mqtt/mac_alert_monitor.py`, which:
 
-Each fixed node has predefined GPS coordinates stored in `config/nodes.json`. Used to map detections and estimate movement paths.
+1. Parses sightings from MQTT (`meshtastic/receive`)
+2. Drops signals below the RSSI threshold, smooths the rest with an EMA
+3. Checks the MAC against `config/whitelist.txt`
+4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`
+5. Alerts on unknown MACs via ntfy.sh, webhook, or Twilio SMS, rate-limited per MAC
 
-## 📊 Features
+An optional Node-RED dashboard (`node-red/flows.json`) shows live sightings with a strong-signals-only toggle.
 
-- Central configuration via `config/config.ini`
-- Whitelist of known MACs (`config/whitelist.txt`)
-- Node locations defined in `config/nodes.json`
-- RSSI filtering (configurable threshold)
-- Exponential Moving Average (EMA) smoothing for RSSI values
-- SQLite logging (`logs/detections.db`) with periodic commits
-- Node-RED dashboard with worldmap visualization
-- Alert dispatch to:
-  - `ntfy.sh`
-  - Webhook endpoint
-  - Twilio SMS
+## Setup
 
-## 🚨 Alert Conditions
-
-Unknown MACs are compared to whitelist and if above RSSI threshold, an alert is triggered.
-
-## 🧠 Filtering & Heuristics
-
-- **RSSI Threshold**: Configurable in `config/config.ini` (`[Filtering] RSSIMin`). Signals weaker than this are ignored.
-- **EMA Smoothing**: Exponential Moving Average is applied to RSSI values to reduce noise. Alpha value configurable in `config/config.ini` (`[Filtering] EMAlpha`).
-- **State Timeout**: Internal state for EMA smoothing is cleared for MACs not seen for a configurable duration (`[Filtering] StateTimeoutSeconds`).
-- **Movement Path**: *Note: The current scripts focus on detection and alerting per node. Advanced path estimation (Kalman/heuristic) mentioned previously is not implemented in the provided Python scripts but could be added to Node-RED or a separate analysis script.*
-
-## 🗺 Node-RED Visualization
-
-A worldmap dashboard shows:
-- Real-time MAC sightings
-- Movement between nodes (with trails)
-- Clickable history per MAC
-
-## 🛠️ Setup
-
-1.  **Install Dependencies**:
-    ```bash
-    bash setup/install_dependencies.sh
-    ```
-    *(Review this script to ensure it installs necessary packages like `paho-mqtt`, `requests`, etc.)*
-2.  **Configure**:
-    - Copy or rename `config/config.ini.example` to `config/config.ini` (if an example file exists, otherwise create it).
-    - Edit `config/config.ini` to set your MQTT broker details, file paths, filtering thresholds, and notification service credentials/settings.
-    - Populate `config/whitelist.txt` with known MAC addresses (one per line).
-    - Populate `config/nodes.json` with your Meshtastic node IDs and their corresponding GPS coordinates.
-3.  **Run Monitor** (from the project root, so relative config paths resolve):
-    ```bash
-    venv/bin/python -m mqtt.mac_alert_monitor
-    ```
-4.  **Setup Node-RED (Optional)**:
-    - Import `node-red/flows.json` into your Node-RED instance.
-    - Ensure Node-RED is configured to connect to your MQTT broker and the SQLite database (`logs/detections.db`).
-
-## 📦 Folder Structure
-
-```
-meshtripwire/
-├── config/
-│   ├── config.ini          # Main configuration
-│   ├── nodes.json          # Node ID to GPS mapping
-│   └── whitelist.txt       # Known MAC addresses
-├── logs/
-│   └── detections.db       # SQLite database for logged detections
-├── mqtt/
-│   └── mac_alert_monitor.py  # Main monitoring script
-├── notifications/
-│   └── alert_dispatch.py
-├── node-red/
-│   └── flows.json
-├── setup/
-│   └── install_dependencies.sh
-└── README.md
+```bash
+bash setup/install_dependencies.sh   # apt packages, venv, Mosquitto, Node-RED
 ```
 
-## 🧪 TODO
+Edit `config/config.ini` (broker, thresholds, notification credentials), `config/whitelist.txt` (one MAC per line), and `config/nodes.json` (node ID to GPS mapping). Then, from the project root:
 
-- [ ] Add advanced filtering toggle in dashboard
-- [ ] Sync detection logs to cloud storage
-- [ ] GPS fallback handling if Meshtastic lacks signal
+```bash
+venv/bin/python -m mqtt.mac_alert_monitor
+```
 
----
+To run as a service, edit the paths/user in `setup/meshtripwire.service`, then:
 
-Developed for off-grid and remote security by combining open-source tools and wireless mesh tech. This project is provided as-is for educartiona purposes only. Do not email author for support please.
+```bash
+sudo cp setup/meshtripwire.service /etc/systemd/system/
+sudo systemctl enable --now meshtripwire
+```
+
+## Configuration
+
+All settings live in `config/config.ini`:
+
+- `[MQTT]` — broker host/port/topic; optional `Username`/`Password`
+- `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`
+- `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS
+
+## Log sync
+
+Back up detections to any cloud storage rclone supports:
+
+```bash
+rclone config                                  # one-time remote setup
+bash setup/sync_logs.sh gdrive:meshtripwire    # or from cron, e.g. every 30 min
+```
+
+## Testing
+
+```bash
+venv/bin/python test_smoke.py
+```

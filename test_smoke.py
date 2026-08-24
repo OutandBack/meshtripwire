@@ -24,6 +24,14 @@ assert monitor.process_detection(parsed) == 'unknown'
 whitelisted = dict(parsed, mac='AA:BB:CC:DD:EE:FF')
 assert monitor.process_detection(whitelisted) == 'whitelisted'
 
+# GPS: payload fix wins, static nodes.json is the fallback
+monitor.node_locations = {'node01': {'lat': 1.0, 'lon': 2.0}}
+with mock.patch.object(monitor, 'log_to_sqlite') as logged:
+    monitor.process_detection(dict(parsed, lat=9.9, lon=8.8))
+    assert logged.call_args[0][4:6] == (9.9, 8.8)
+    monitor.process_detection(dict(parsed, lat=None, lon=None))
+    assert logged.call_args[0][4:6] == (1.0, 2.0)
+
 # Alert fires once, then cooldown suppresses; whitelisted never alerts
 with mock.patch.object(monitor, 'send_alert') as sa:
     monitor.trigger_alert_if_needed('DE:AD:BE:EF:00:01', 'node01', 'unknown')

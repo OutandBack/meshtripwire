@@ -202,7 +202,10 @@ def parse_mqtt_message(payload_bytes, topic):
             "mac": mac,
             "node_id": str(node), # Ensure node ID is string
             "rssi": rssi,
-            "timestamp_iso": timestamp_iso
+            "timestamp_iso": timestamp_iso,
+            # GPS from the node's own fix, when the payload carries one
+            "lat": payload.get("lat"),
+            "lon": payload.get("lon")
         }
 
     except json.JSONDecodeError:
@@ -232,10 +235,13 @@ def process_detection(detection_data):
     # Check against whitelist
     status = "whitelisted" if mac in whitelist else "unknown"
 
-    # Get node location
-    node_info = node_locations.get(node_id, {})
-    lat = node_info.get("lat")
-    lon = node_info.get("lon")
+    # Use the payload's GPS fix if present, else fall back to static node location
+    lat = detection_data.get("lat")
+    lon = detection_data.get("lon")
+    if lat is None or lon is None:
+        node_info = node_locations.get(node_id, {})
+        lat = node_info.get("lat")
+        lon = node_info.get("lon")
 
     # Log to database
     log_to_sqlite(mac, node_id, smoothed_rssi, timestamp_iso, lat, lon)
@@ -323,6 +329,9 @@ def main():
     mqtt_port = config.getint('MQTT', 'Port', fallback=1883)
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    mqtt_user = config.get('MQTT', 'Username', fallback=None)
+    if mqtt_user:
+        client.username_pw_set(mqtt_user, config.get('MQTT', 'Password', fallback=None))
     client.on_connect = on_connect
     client.on_message = on_message
 

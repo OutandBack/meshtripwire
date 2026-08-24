@@ -8,7 +8,43 @@
         "broker": "localhost",
         "x": 120,
         "y": 100,
+        "wires": [["rssi_filter"]]
+    },
+    {
+        "id": "rssi_filter",
+        "type": "function",
+        "z": "flow1",
+        "name": "RSSI filter (toggleable)",
+        "func": "if (flow.get('strongOnly') && msg.payload.rssi < -75) { return null; }\nreturn msg;",
+        "outputs": 1,
+        "x": 210,
+        "y": 100,
         "wires": [["log_mac", "ui_update"]]
+    },
+    {
+        "id": "filter_toggle",
+        "type": "ui_switch",
+        "z": "flow1",
+        "name": "Strong signals only",
+        "label": "Strong signals only",
+        "group": "dashboard",
+        "order": 0,
+        "onvalue": "true",
+        "offvalue": "false",
+        "x": 120,
+        "y": 180,
+        "wires": [["store_toggle"]]
+    },
+    {
+        "id": "store_toggle",
+        "type": "function",
+        "z": "flow1",
+        "name": "Store toggle",
+        "func": "flow.set('strongOnly', msg.payload === 'true' || msg.payload === true);\nreturn null;",
+        "outputs": 0,
+        "x": 300,
+        "y": 180,
+        "wires": []
     },
     {
         "id": "log_mac",

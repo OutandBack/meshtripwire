@@ -1,0 +1,17 @@
+# Edit WorkingDirectory/ExecStart/User for your install path, then:
+#   sudo cp setup/meshtripwire.service /etc/systemd/system/
+#   sudo systemctl enable --now meshtripwire
+[Unit]
+Description=meshtripwire MAC alert monitor
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/home/pi/meshtripwire
+ExecStart=/home/pi/meshtripwire/venv/bin/python -m mqtt.mac_alert_monitor
+Restart=on-failure
+RestartSec=10
+User=pi
+
+[Install]
+WantedBy=multi-user.target
