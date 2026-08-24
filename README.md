@@ -1,11 +1,42 @@
 # meshtripwire
 
-Wireless tripwire for remote properties. ESP32 sensor nodes (Paxcounter-derived firmware + Meshtastic) detect nearby WiFi/BLE MAC addresses and relay them over LoRa to a Raspberry Pi base station, which filters, logs, and alerts on unknown devices.
+Wireless tripwire for remote properties. Distributed sensors detect nearby WiFi/BLE MAC addresses and feed them to a Raspberry Pi base station that filters, logs, and alerts on unknown devices — with off-grid alert delivery over LoRa/Reticulum when there's no Internet.
 
 Not affiliated with the Meshtastic project. Proof of concept, provided as-is.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph sensors["MAC sources — publish {mac, from, rssi}"]
+        S1["Base scanner<br/>WiFi + BLE<br/>(sensors/base_scanner.py)"]
+        S2["ESP32 sniffer nodes<br/>WiFi promiscuous<br/>(firmware/esp32_sniffer)"]
+        S3["USB Meshtastic bridge<br/>(mqtt/serial_bridge.py)"]
+    end
+
+    S1 -->|MQTT| BROKER
+    S2 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
+    S3 -->|MQTT| BROKER
+
+    subgraph base["Raspberry Pi base station (Docker)"]
+        BROKER["Mosquitto<br/>meshtastic/receive"]
+        MON["Monitor<br/>RSSI filter · EMA · whitelist<br/>(mqtt/mac_alert_monitor.py)"]
+        DB[("SQLite<br/>detections.db")]
+        NR["Node-RED<br/>dashboard :1880"]
+        BROKER --> MON
+        BROKER --> NR
+        MON --> DB
+    end
+
+    MON -->|unknown MAC| ALERTS
+    subgraph ALERTS["Alerts (rate-limited per MAC)"]
+        A1["ntfy · webhook · Twilio<br/>(needs Internet)"]
+        A2["MQTT topic → RelayFabric<br/>→ LoRa / Reticulum (off-grid)"]
+    end
+```
+
 **Caveats:**
-- Stock Paxcounter sends anonymized people *counts*, not per-MAC data — the sensor side requires custom firmware that publishes `{"mac", "from", "rssi"}` JSON to MQTT.
+- Any sensor that publishes `{"mac", "from", "rssi"}` JSON to MQTT works (see [Where MACs come from](#where-macs-come-from)). Stock Meshtastic Paxcounter sends only anonymized *counts*, not per-MAC data, so it can't drive the whitelist pipeline on its own.
 - Modern phones randomize their MACs. Whitelist fixed devices (cameras, sensors, laptops); treat phone MACs as ephemeral.
 
 ## How it works
