@@ -208,7 +208,7 @@ All settings live in `config/config.ini`:
 - `[Files]` — data file paths; `RetentionDays` prunes old detections (0 = keep forever)
 - `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`, `DwellSeconds`
 - `[Sensors]` — `ExpectedSensors`, `SensorTimeoutSeconds`, `HeartbeatTopic` (sensor-offline watchdog)
-- `[Arming]` — `Schedule`, `ControlTopic` (when alerts are allowed to fire)
+- `[Arming]` — `Schedule`, `ControlTopic`, `ControlSecret`, `ControlOverrideTTL` (when alerts are allowed to fire)
 - `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS, and the MQTT alert output (`EnableMqtt`/`MqttAlertTopic`, for off-grid relay via RelayFabric)
 
 ### Cutting false alarms
