@@ -14,13 +14,25 @@ Sensor nodes scan and forward sightings over LoRa. The base station runs Mosquit
 
 1. Parses sightings from MQTT (`meshtastic/receive`)
 2. Drops signals below the RSSI threshold, smooths the rest with an EMA
-3. Checks the MAC against `config/whitelist.txt`
+3. Checks the MAC against `config/whitelist.txt` (hot-reloaded on file change, no restart needed)
 4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`
 5. Alerts on unknown MACs via ntfy.sh, webhook, or Twilio SMS, rate-limited per MAC
 
 An optional Node-RED dashboard (`node-red/flows.json`) shows live sightings with a strong-signals-only toggle.
 
 ## Setup
+
+### Docker (recommended)
+
+Runs the full stack: Mosquitto, the monitor, and Node-RED (dashboard on port 1880).
+
+```bash
+docker compose up -d --build
+```
+
+The monitor reaches the broker via the `MQTT_HOST=mosquitto` env override; `config/` and `logs/` are mounted from the host, so edit config and whitelist in place. The bundled `setup/mosquitto.conf` allows anonymous LAN publishes — add auth/TLS before exposing it further.
+
+### Bare metal (Raspberry Pi)
 
 ```bash
 bash setup/install_dependencies.sh   # apt packages, venv, Mosquitto, Node-RED
@@ -43,7 +55,8 @@ sudo systemctl enable --now meshtripwire
 
 All settings live in `config/config.ini`:
 
-- `[MQTT]` — broker host/port/topic; optional `Username`/`Password`
+- `[MQTT]` — broker host/port/topic; optional `Username`/`Password` and `UseTLS`/`CAFile`
+- `[Files]` — data file paths; `RetentionDays` prunes old detections (0 = keep forever)
 - `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`
 - `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS
 

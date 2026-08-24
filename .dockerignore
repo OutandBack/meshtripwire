@@ -1,0 +1,4 @@
+.git/
+venv/
+logs/
+test_smoke.py

@@ -6,7 +6,7 @@ import sys
 import logging
 import configparser
 import time # Added for timestamp comparison
-from datetime import datetime, timezone # Added timezone
+from datetime import datetime, timedelta, timezone
 from notifications.alert_dispatch import send_alert
 
 # --- Global State ---
@@ -14,6 +14,7 @@ config = None # To hold loaded configuration
 ema_states = {} # Stores {'mac': (ema_value, last_seen_timestamp)}
 message_counter = 0 # Counter for periodic cleanup
 whitelist = set()
+whitelist_mtime = 0.0
 node_locations = {}
 last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 db_conn = None
@@ -48,13 +49,12 @@ def setup_logging():
     logging.info(f"Logging configured to level {log_level_str}")
 
 
-def load_data_files():
-    """Loads whitelist and node locations using paths from config."""
-    global whitelist, node_locations
+def load_whitelist():
+    """Loads the whitelist and records its mtime for hot-reload."""
+    global whitelist, whitelist_mtime
     whitelist_file = config.get('Files', 'Whitelist')
-    nodes_file = config.get('Files', 'Nodes')
-
     try:
+        whitelist_mtime = os.path.getmtime(whitelist_file)
         with open(whitelist_file) as f:
             whitelist = {line.strip().upper() for line in f if line.strip()}
         logging.info(f"Loaded {len(whitelist)} MACs from {whitelist_file}")
@@ -62,6 +62,25 @@ def load_data_files():
         # An empty whitelist would flag every MAC as unknown and flood alerts.
         raise SystemExit(f"Whitelist file not found: {whitelist_file}. "
                          "Create it (one MAC per line) or fix the path in config.ini.")
+
+
+def maybe_reload_whitelist():
+    """Reloads the whitelist if its file changed on disk (one stat per message)."""
+    whitelist_file = config.get('Files', 'Whitelist')
+    try:
+        mtime = os.path.getmtime(whitelist_file)
+    except OSError:
+        return # File missing mid-run: keep the currently loaded list
+    if mtime != whitelist_mtime:
+        load_whitelist()
+
+
+def load_data_files():
+    """Loads whitelist and node locations using paths from config."""
+    global node_locations
+    nodes_file = config.get('Files', 'Nodes')
+
+    load_whitelist()
 
     try:
         with open(nodes_file) as f:
@@ -110,6 +129,22 @@ def setup_database():
         logging.error(f"OS error setting up database directory {db_path}: {e}")
         db_conn = None
         db_cursor = None
+
+
+def prune_old_detections():
+    """Deletes detections older than RetentionDays (0 = keep forever)."""
+    days = config.getint('Files', 'RetentionDays', fallback=0)
+    if days <= 0 or not db_conn:
+        return
+    # Timestamps are UTC isoformat, so lexical comparison against a same-format cutoff works
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    try:
+        db_cursor.execute("DELETE FROM detections WHERE timestamp < ?", (cutoff,))
+        if db_cursor.rowcount > 0:
+            logging.info(f"Pruned {db_cursor.rowcount} detection(s) older than {days} day(s).")
+        db_conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Failed to prune old detections: {e}")
 
 
 def cleanup_ema_states():
@@ -277,6 +312,7 @@ def on_message(client, userdata, msg):
     message_counter += 1
     if message_counter >= cleanup_interval:
         cleanup_ema_states()
+        prune_old_detections()
         if db_conn:
             try:
                 db_conn.commit()
@@ -288,6 +324,7 @@ def on_message(client, userdata, msg):
     # --- Message Handling Pipeline ---
     try:
         # 1. Parse and Validate
+        maybe_reload_whitelist()
         parsed_data = parse_mqtt_message(msg.payload, msg.topic)
         if not parsed_data:
             return # Skip if parsing failed or data below threshold
@@ -324,11 +361,16 @@ def main():
         logging.error("Database setup failed. Cannot proceed.")
         return 1
 
-    # Get MQTT details from config
-    mqtt_host = config.get('MQTT', 'Host', fallback='localhost')
+    prune_old_detections()
+
+    # Get MQTT details from config (MQTT_HOST env overrides, for Docker)
+    mqtt_host = os.environ.get('MQTT_HOST') or config.get('MQTT', 'Host', fallback='localhost')
     mqtt_port = config.getint('MQTT', 'Port', fallback=1883)
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    if config.getboolean('MQTT', 'UseTLS', fallback=False):
+        # CAFile optional: omit to use the system trust store
+        client.tls_set(ca_certs=config.get('MQTT', 'CAFile', fallback=None) or None)
     mqtt_user = config.get('MQTT', 'Username', fallback=None)
     if mqtt_user:
         client.username_pw_set(mqtt_user, config.get('MQTT', 'Password', fallback=None))

@@ -1,6 +1,9 @@
 """Smoke test: run with `venv/bin/python test_smoke.py` from the project root."""
 import json
+import os
+import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import mqtt.mac_alert_monitor as monitor
@@ -42,5 +45,35 @@ with mock.patch.object(monitor, 'send_alert') as sa:
     monitor.last_alert_times['DE:AD:BE:EF:00:01'] = time.time() - 301
     monitor.trigger_alert_if_needed('DE:AD:BE:EF:00:01', 'node01', 'unknown')
     assert sa.call_count == 2
+
+# Whitelist hot-reload: edits on disk apply without a restart
+with tempfile.TemporaryDirectory() as tmp:
+    wl_path = os.path.join(tmp, 'whitelist.txt')
+    open(wl_path, 'w').write('11:11:11:11:11:11\n')
+    monitor.config.set('Files', 'Whitelist', wl_path)
+    monitor.load_whitelist()
+    assert monitor.whitelist == {'11:11:11:11:11:11'}
+    open(wl_path, 'w').write('22:22:22:22:22:22\n')
+    os.utime(wl_path, (time.time() + 5,) * 2)  # force a distinct mtime
+    monitor.maybe_reload_whitelist()
+    assert monitor.whitelist == {'22:22:22:22:22:22'}
+
+    # Retention pruning: old rows deleted, recent rows kept, 0 = keep forever
+    monitor.config.set('Files', 'Database', os.path.join(tmp, 'test.db'))
+    monitor.setup_database()
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    monitor.log_to_sqlite('OL:D0:00:00:00:00', 'node01', -60, old_ts, None, None)
+    monitor.log_to_sqlite('NE:W0:00:00:00:00', 'node01', -60, datetime.now(timezone.utc).isoformat(), None, None)
+    monitor.db_conn.commit()
+    def count():
+        return monitor.db_cursor.execute('SELECT COUNT(*) FROM detections').fetchone()[0]
+    monitor.config.set('Files', 'RetentionDays', '0')
+    monitor.prune_old_detections()
+    assert count() == 2
+    monitor.config.set('Files', 'RetentionDays', '7')
+    monitor.prune_old_detections()
+    assert count() == 1
+    monitor.db_conn.close()
+    monitor.db_conn = monitor.db_cursor = None
 
 print('smoke test OK')

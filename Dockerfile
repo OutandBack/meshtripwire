@@ -1,0 +1,8 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY mqtt/ mqtt/
+COPY notifications/ notifications/
+# config/ and logs/ are volume-mounted (see docker-compose.yml)
+CMD ["python", "-m", "mqtt.mac_alert_monitor"]
