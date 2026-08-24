@@ -137,6 +137,34 @@ sudo cp setup/meshtripwire.service /etc/systemd/system/
 sudo systemctl enable --now meshtripwire
 ```
 
+### Sensors
+
+The base station alone detects nothing — add at least one MAC source.
+
+**Base scanner** (no hardware beyond the Pi's own radios):
+
+```bash
+pip install bleak                                  # for --ble; scapy for --wifi
+python -m sensors.base_scanner --node base --ble   # add --wifi wlan1mon for WiFi
+```
+
+**ESP32 BLE sniffer** (`firmware/esp32_sniffer/`):
+
+1. Install the ESP32 board package in Arduino IDE (or PlatformIO), plus the
+   **PubSubClient** library. BLE mode uses the core's built-in `BLEDevice` — no
+   extra install.
+2. In `esp32_sniffer.ino`, set `#define SCAN_MODE SCAN_BLE`, then edit the config
+   block: `WIFI_SSID`/`WIFI_PASS`, `MQTT_HOST`/`MQTT_PORT`, a unique `NODE_ID`,
+   and `RSSI_MIN`. Leave `OUTPUT_SERIAL 0` for WiFi→MQTT backhaul.
+3. Put the C3 in download mode — hold **BOOT**, tap **RESET**, release BOOT — and
+   flash. Power over USB-C only while flashing (don't also feed the 5V pin).
+4. Open Serial Monitor at 115200; you'll see published sightings. Confirm they
+   land with `docker compose logs -f monitor`.
+
+Deploy WiFi sniffers (`SCAN_MODE SCAN_WIFI`) and BLE sniffers (`SCAN_MODE
+SCAN_BLE`) as separate boards — one radio each. Full options, serial→LoRa
+backhaul, and reality checks are in [`firmware/README.md`](firmware/README.md).
+
 ## Configuration
 
 All settings live in `config/config.ini`:
