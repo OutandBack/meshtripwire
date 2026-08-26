@@ -21,6 +21,9 @@
 
 // ---- Config: edit these ----
 #define OUTPUT_SERIAL 0                 // 0 = WiFi/MQTT, 1 = Serial line for LoRa backhaul
+#define DEBUG_PRINT   1                 // 1 = print mag/baseline/delta 1/s for calibration.
+                                        // Ignored when OUTPUT_SERIAL=1: a wired Meshtastic
+                                        // node would relay every debug line over LoRa.
 const char* WIFI_SSID   = "your-ssid";
 const char* WIFI_PASS   = "your-pass";
 const char* MQTT_HOST   = "192.168.1.10";
@@ -92,6 +95,13 @@ void setup() {
   Wire.begin();
   qmc_write(0x0B, 0x01);  // SET/RESET period (datasheet-recommended init)
   qmc_write(0x09, 0x0D);  // continuous mode, 50 Hz, 2G range, OSR 512
+#if DEBUG_PRINT && !OUTPUT_SERIAL
+  delay(100);
+  Wire.beginTransmission(QMC_ADDR);
+  Serial.println(Wire.endTransmission() == 0
+                 ? "qmc5883l_vehicle: sensor found"
+                 : "qmc5883l_vehicle: QMC5883L NOT FOUND at 0x0D - check wiring");
+#endif
 #if !OUTPUT_SERIAL
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -122,6 +132,14 @@ void loop() {
 
   int delta = (int)fabsf(mag - baseline);
   bool triggered = delta > TRIGGER_LSB;
+#if DEBUG_PRINT && !OUTPUT_SERIAL
+  static uint32_t lastDbg = 0;
+  if (millis() - lastDbg > 1000) {
+    lastDbg = millis();
+    Serial.printf("mag=%.0f baseline=%.0f delta=%d%s\n",
+                  mag, baseline, delta, triggered ? " TRIGGERED" : "");
+  }
+#endif
   if (!triggered) {
     // Only adapt when quiet: a passing vehicle must not be absorbed mid-event.
     baseline += BASELINE_ALPHA * (mag - baseline);
