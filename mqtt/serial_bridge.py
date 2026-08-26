@@ -60,6 +60,15 @@ def payload_for(packet, nodes, sensor_map=None):
             sighting = None
         if isinstance(sighting, dict) and sighting.get('mac'):
             return json.dumps(sighting)
+        # Compact vehicle event "V,123" from a QMC5883L node: magnitude delta only,
+        # the relay node's address identifies the sensor (as with sightings).
+        if text.startswith('V,'):
+            try:
+                sender = packet.get('fromId') or str(packet.get('from'))
+                name = (sensor_map or {}).get(sender, sender)
+                return json.dumps({'event': 'vehicle', 'from': name, 'mag': int(text[2:])})
+            except ValueError:
+                pass
         compact = parse_compact(text)
         if compact:
             mac, rssi = compact

@@ -5,6 +5,9 @@ the tripwire, for coverage the base-station scanner can't reach. Publishes the
 same `{"mac","from","rssi"}` JSON to `meshtastic/receive`, so the monitor needs
 no changes.
 
+For the magnetometer-based vehicle sensor, see
+[Vehicle detection node](#vehicle-detection-node-qmc5883l) below.
+
 ## Flash it
 
 1. Arduino IDE with the ESP32 board package (or PlatformIO with `platform = espressif32`).
@@ -54,6 +57,37 @@ raise `COOLDOWN_MS`, tighten `RSSI_MIN`, or use a faster Meshtastic modem preset
 (ShortFast) if range allows. For the absolute minimum, a binary payload (6-byte
 MAC + 1-byte RSSI ≈ 8 bytes) via the Serial module's PROTO mode would shave more,
 at the cost of decoding on both ends — not implemented here.
+
+## Vehicle detection node (QMC5883L)
+
+`firmware/qmc5883l_vehicle/` turns any ESP32 plus a ~$2 GY-271 (QMC5883L)
+magnetometer module into a driveway vehicle sensor. A vehicle's ferrous mass
+shifts the local magnetic field as it passes; the node tracks a slow baseline
+and reports when the field magnitude deviates past a threshold. It catches
+vehicles carrying no phone or BLE gear at all — the case the MAC sniffers miss.
+
+**Wiring** (GY-271, I2C): VCC→3V3, GND→GND, SDA/SCL→your board's default Wire
+pins. Mount rigidly within ~2–5 m of the drive lane (farther works for trucks);
+a swaying post reads as field change and false-alarms.
+
+**Backhaul**, same `OUTPUT_SERIAL` switch as the sniffer:
+
+- **WiFi → MQTT** (`0`, default): publishes
+  `{"event":"vehicle","from":"gate","mag":<delta>}` to `meshtastic/receive`.
+- **Serial → LoRa mesh** (`1`): prints a compact `V,<delta>` line (~6 bytes) for
+  a wired Meshtastic node to relay; `serial_bridge.py` expands it and maps the
+  relay node to a sensor name via `--sensor-map`.
+
+The monitor routes vehicle events straight to alerting — no whitelist, EMA, or
+dwell (a magnetometer hit is already vehicle-specific and identity-blind). It
+respects arming and its own `[Filtering] VehicleAlertCooldownSeconds` cooldown,
+and events count toward the sensor watchdog.
+
+**Calibration**: every site's field differs and sensors drift. Flash with
+detection on, watch Serial/MQTT during a few drive-bys, then set `TRIGGER_LSB`
+between ambient noise and your smallest vehicle. `BASELINE_ALPHA` controls how
+fast the baseline absorbs drift; a sustained shift longer than `RESEED_MS`
+(a car that parked) becomes the new baseline automatically.
 
 ## Reality checks
 

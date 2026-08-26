@@ -97,6 +97,27 @@ assert monitor.manual_armed is False
 monitor.config.set('Arming', 'ControlSecret', '')
 monitor.manual_armed = None
 
+# Vehicle events: consumed before the MAC pipeline, alert when armed, own cooldown
+monitor.sensor_last_seen.clear()
+with mock.patch.object(monitor, 'send_alert') as sa:
+    assert monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":123}') is True
+    assert sa.call_count == 1 and 'vehicle' in sa.call_args.kwargs['message'].lower()
+    monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":99}')
+    assert sa.call_count == 1                      # cooldown suppresses
+    monitor.vehicle_last_alerts['gate'] = time.time() - 301
+    monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":99}')
+    assert sa.call_count == 2                      # cooldown expiry re-alerts
+    assert 'gate' in monitor.sensor_last_seen      # counts for the sensor watchdog
+    assert monitor.handle_vehicle_event(b'{"mac":"aa"}') is False  # not a vehicle event
+    assert monitor.handle_vehicle_event(b'not json') is False
+monitor.manual_armed = False
+monitor.manual_armed_ts = time.time()
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":5}')
+    assert sa.call_count == 0                      # disarmed suppresses
+monitor.manual_armed = None
+monitor.vehicle_last_alerts.clear()
+
 # Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
 monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
 monitor.config.set('Sensors', 'SensorTimeoutSeconds', '900')

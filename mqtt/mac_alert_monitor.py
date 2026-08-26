@@ -21,6 +21,7 @@ last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time alerting
 sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
 sensor_offline = set() # Nodes currently flagged offline (alert once, until they return)
+vehicle_last_alerts = {} # Stores {'node': last_alert_unix_ts} for vehicle alert cooldown
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
@@ -408,6 +409,45 @@ def trigger_alert_if_needed(mac, node_id, status):
         logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
 
 
+def handle_vehicle_event(payload_bytes):
+    """Consume a {"event":"vehicle","from":node,"mag":delta} message from a
+    QMC5883L node. Returns True if the message was a vehicle event.
+
+    No whitelist/EMA/dwell — a magnetometer trigger is already vehicle-specific
+    and identity-blind. Gated by arming and a per-node cooldown.
+    """
+    try:
+        payload = json.loads(payload_bytes.decode())
+    except (ValueError, UnicodeDecodeError):
+        return False
+    if not isinstance(payload, dict) or payload.get("event") != "vehicle":
+        return False
+
+    node = str(payload.get("from", "unknown"))
+    mag = payload.get("mag", 0)
+    note_sensor_seen(node)
+    log_to_sqlite("vehicle", node, float(mag), datetime.now(timezone.utc).isoformat(),
+                  None, None)
+    logging.info(f"Vehicle event: Node={node}, Mag={mag}")
+
+    if not is_armed():
+        logging.debug(f"Disarmed; vehicle alert from {node} suppressed.")
+        return True
+    cooldown = config.getint('Filtering', 'VehicleAlertCooldownSeconds', fallback=300)
+    now_ts = time.time()
+    if now_ts - vehicle_last_alerts.get(node, 0) < cooldown:
+        logging.debug(f"Vehicle alert from {node} suppressed (cooldown {cooldown}s).")
+        return True
+    vehicle_last_alerts[node] = now_ts
+    logging.warning(f"Vehicle detected by node {node} (mag delta {mag}). Sending alert.")
+    try:
+        send_alert(config, "vehicle", node,
+                   message=f"ALERT: Vehicle detected by node {node} (magnitude {mag}).")
+    except Exception as e:
+        logging.error(f"Error calling send_alert for vehicle event from {node}: {e}")
+    return True
+
+
 def on_message(client, userdata, msg):
     """Callback for when a message is received from MQTT."""
     global message_counter # Access global counter
@@ -440,6 +480,10 @@ def on_message(client, userdata, msg):
 
     # --- Message Handling Pipeline ---
     try:
+        # Vehicle events (QMC5883L nodes) bypass the MAC pipeline entirely
+        if handle_vehicle_event(msg.payload):
+            return
+
         # 1. Parse and Validate
         maybe_reload_whitelist()
         parsed_data = parse_mqtt_message(msg.payload, msg.topic)
