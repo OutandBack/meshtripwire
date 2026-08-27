@@ -22,12 +22,20 @@ assert json.loads(out) == {'mac': 'AA:BB:CC:11:22:33', 'from': 'gate', 'rssi': -
 out = payload_for({'decoded': {'text': 'AABBCC112233,-64'}, 'fromId': '!zzzz'}, NODES)
 assert json.loads(out)['from'] == '!zzzz', out
 
-# Mode 1c: compact vehicle event "V,123" from a QMC5883L node -> vehicle JSON
+# Mode 1c: compact sensor events -> event JSON
+# "V,123" vehicle (QMC5883L), "K,812" knock peak, "S,9" shake hit count (piezo)
 out = payload_for({'decoded': {'text': 'V,123'}, 'fromId': '!aabb'},
                   NODES, sensor_map={'!aabb': 'gate'})
 assert json.loads(out) == {'event': 'vehicle', 'from': 'gate', 'mag': 123}, out
-# Malformed magnitude is not a vehicle event (falls through; no rssi -> skip)
+out = payload_for({'decoded': {'text': 'K,812'}, 'fromId': '!aabb'},
+                  NODES, sensor_map={'!aabb': 'fence-e'})
+assert json.loads(out) == {'event': 'knock', 'from': 'fence-e', 'peak': 812}, out
+out = payload_for({'decoded': {'text': 'S,9'}, 'fromId': '!aabb'},
+                  NODES, sensor_map={'!aabb': 'fence-e'})
+assert json.loads(out) == {'event': 'shake', 'from': 'fence-e', 'hits': 9}, out
+# Malformed value is not an event (falls through; no rssi -> skip)
 assert payload_for({'decoded': {'text': 'V,notint'}}, NODES) is None
+assert payload_for({'decoded': {'text': 'K,'}, 'fromId': '!aabb'}, NODES) is None
 
 # Mode 2: no text -> synthesize from the transmitting node's own MAC + GPS
 out = payload_for({'fromId': '!aabb', 'rxRssi': -70}, NODES)

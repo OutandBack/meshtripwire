@@ -21,7 +21,7 @@ last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time alerting
 sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
 sensor_offline = set() # Nodes currently flagged offline (alert once, until they return)
-vehicle_last_alerts = {} # Stores {'node': last_alert_unix_ts} for vehicle alert cooldown
+event_last_alerts = {} # Stores {(node, event): last_alert_unix_ts} for sensor-event cooldowns
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
@@ -409,42 +409,55 @@ def trigger_alert_if_needed(mac, node_id, status):
         logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
 
 
-def handle_vehicle_event(payload_bytes):
-    """Consume a {"event":"vehicle","from":node,"mag":delta} message from a
-    QMC5883L node. Returns True if the message was a vehicle event.
+# event -> (payload value field, cooldown config key, default cooldown, alert text)
+SENSOR_EVENTS = {
+    "vehicle": ("mag", "VehicleAlertCooldownSeconds", 300,
+                "ALERT: Vehicle detected by node {node} (magnitude {val})."),
+    "knock":   ("peak", "KnockAlertCooldownSeconds", 300,
+                "ALERT: Impact/knock detected by node {node} (peak {val})."),
+    "shake":   ("hits", "ShakeAlertCooldownSeconds", 120,
+                "ALERT: Sustained shaking/climbing at node {node} ({val} hits)."),
+}
 
-    No whitelist/EMA/dwell — a magnetometer trigger is already vehicle-specific
-    and identity-blind. Gated by arming and a per-node cooldown.
+
+def handle_sensor_event(payload_bytes):
+    """Consume a {"event":<type>,"from":node,...} message from a vehicle
+    (QMC5883L) or piezo vibration node. Returns True if consumed.
+
+    No whitelist/EMA/dwell — these sensors classify on-device and are
+    identity-blind. Gated by arming and a per-(node, event type) cooldown.
     """
     try:
         payload = json.loads(payload_bytes.decode())
     except (ValueError, UnicodeDecodeError):
         return False
-    if not isinstance(payload, dict) or payload.get("event") != "vehicle":
+    if not isinstance(payload, dict) or payload.get("event") not in SENSOR_EVENTS:
         return False
 
+    event = payload["event"]
+    field, cooldown_key, cooldown_default, template = SENSOR_EVENTS[event]
     node = str(payload.get("from", "unknown"))
-    mag = payload.get("mag", 0)
+    val = payload.get(field, 0)
     note_sensor_seen(node)
-    log_to_sqlite("vehicle", node, float(mag), datetime.now(timezone.utc).isoformat(),
+    log_to_sqlite(event, node, float(val), datetime.now(timezone.utc).isoformat(),
                   None, None)
-    logging.info(f"Vehicle event: Node={node}, Mag={mag}")
+    logging.info(f"Sensor event: Type={event}, Node={node}, {field}={val}")
 
     if not is_armed():
-        logging.debug(f"Disarmed; vehicle alert from {node} suppressed.")
+        logging.debug(f"Disarmed; {event} alert from {node} suppressed.")
         return True
-    cooldown = config.getint('Filtering', 'VehicleAlertCooldownSeconds', fallback=300)
+    cooldown = config.getint('Filtering', cooldown_key, fallback=cooldown_default)
     now_ts = time.time()
-    if now_ts - vehicle_last_alerts.get(node, 0) < cooldown:
-        logging.debug(f"Vehicle alert from {node} suppressed (cooldown {cooldown}s).")
+    if now_ts - event_last_alerts.get((node, event), 0) < cooldown:
+        logging.debug(f"{event} alert from {node} suppressed (cooldown {cooldown}s).")
         return True
-    vehicle_last_alerts[node] = now_ts
-    logging.warning(f"Vehicle detected by node {node} (mag delta {mag}). Sending alert.")
+    event_last_alerts[(node, event)] = now_ts
+    message = template.format(node=node, val=val)
+    logging.warning(f"{message} Sending alert.")
     try:
-        send_alert(config, "vehicle", node,
-                   message=f"ALERT: Vehicle detected by node {node} (magnitude {mag}).")
+        send_alert(config, event, node, message=message)
     except Exception as e:
-        logging.error(f"Error calling send_alert for vehicle event from {node}: {e}")
+        logging.error(f"Error calling send_alert for {event} event from {node}: {e}")
     return True
 
 
@@ -480,8 +493,8 @@ def on_message(client, userdata, msg):
 
     # --- Message Handling Pipeline ---
     try:
-        # Vehicle events (QMC5883L nodes) bypass the MAC pipeline entirely
-        if handle_vehicle_event(msg.payload):
+        # Sensor events (vehicle/knock/shake nodes) bypass the MAC pipeline entirely
+        if handle_sensor_event(msg.payload):
             return
 
         # 1. Parse and Validate

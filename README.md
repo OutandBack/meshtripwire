@@ -14,6 +14,7 @@ flowchart LR
         S4["ESP32 sniffer node<br/>BLE scan<br/>(firmware/esp32_sniffer)"]
         S3["USB LoRa-mesh bridge<br/>Meshtastic (optional)<br/>(mqtt/serial_bridge.py)"]
         S5["ESP32 vehicle sensor<br/>QMC5883L magnetometer<br/>(firmware/qmc5883l_vehicle)"]
+        S6["ESP32 vibration sensor<br/>piezo disc knock/shake<br/>(firmware/piezo_vibration)"]
     end
 
     S1 -->|MQTT| BROKER
@@ -21,6 +22,7 @@ flowchart LR
     S4 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
     S3 -->|MQTT| BROKER
     S5 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
+    S6 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
 
     subgraph base["Raspberry Pi base station (Docker)"]
         BROKER["Mosquitto broker<br/>topic: meshtastic/receive"]
@@ -74,13 +76,16 @@ sensor. Available sources, in order of effort:
 - **Custom sensor firmware** — the original vision, scan + LoRa in one node.
   Not provided; would emit the same `{mac, from, rssi}` over any mesh.
 
-One non-MAC source: the **vehicle sensor** (`firmware/qmc5883l_vehicle/`), an
-ESP32 with a QMC5883L magnetometer that detects the field shift of a passing
-vehicle — including ones carrying no phone or BLE gear. It publishes
-`{"event":"vehicle","from":node,"mag":delta}` (or a compact `V,<delta>` line
-over the LoRa relay), which the monitor routes straight to alerting: no
-whitelist or dwell, but arming and its own cooldown
-(`VehicleAlertCooldownSeconds`) apply. Details in `firmware/README.md`.
+Two non-MAC sources publish classified events instead of sightings — the
+**vehicle sensor** (`firmware/qmc5883l_vehicle/`, QMC5883L magnetometer: field
+shift of a passing vehicle, no phone required) and the **vibration sensor**
+(`firmware/piezo_vibration/`, piezo disc on a door or fence: distinguishes a
+brief knock from sustained climbing/shaking, ignores wind). They publish
+`{"event":"vehicle"|"knock"|"shake","from":node,...}` (or compact `V,`/`K,`/`S,`
+lines over the LoRa relay), which the monitor routes straight to alerting: no
+whitelist or dwell, but arming and per-type cooldowns
+(`VehicleAlertCooldownSeconds`, `KnockAlertCooldownSeconds`,
+`ShakeAlertCooldownSeconds`) apply. Details in `firmware/README.md`.
 
 ### Off-grid sensors (LoRa relay)
 
@@ -141,6 +146,7 @@ affiliate links (they help fund the project; buy anywhere you like).
 | **WiFi/BLE sniffer node** | [ESP32-C3 SuperMini](https://amzn.to/4gODyHE) | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). WiFi-range backhaul only. Onboard PCB antenna is often detuned on these clones → shorter range; prefer a board with a u.FL/external antenna if coverage matters. Deploy several. |
 | | [ESP32-WROOM-32 DevKitC](https://amzn.to/45GHggp) | $3–5 | Dual-core alternative, no real advantage for sniffing. |
 | **Vehicle sensor node** (optional) | GY-271 (QMC5883L) magnetometer + any ESP32 above | $2–3 | I2C module; detects the magnetic signature of vehicles within ~2–5 m, no phone required. See `firmware/README.md`. |
+| **Vibration sensor node** (optional) | Piezo disc (27 mm) + 1 MΩ resistor + any ESP32 above | <$1 | Glued to a door/gate/fence; classifies knock vs sustained shaking on-device, ignores wind. See `firmware/README.md`. |
 | **Off-grid / LoRa node** (optional) | [Heltec WiFi LoRa 32 V3](https://amzn.to/4gQIko0) | $12–18 | Only for sensors/alerts beyond WiFi range. Runs Meshtastic, MeshCore, or Reticulum. Same board as the reference node. |
 | | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
 | **Power (per remote node)** | [18650 cell + holder](https://amzn.to/4c9de8z), or USB PSU | $5–15 | Solar + LiPo for true off-grid; a phone charger indoors. |

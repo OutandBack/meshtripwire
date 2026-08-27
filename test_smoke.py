@@ -97,26 +97,38 @@ assert monitor.manual_armed is False
 monitor.config.set('Arming', 'ControlSecret', '')
 monitor.manual_armed = None
 
-# Vehicle events: consumed before the MAC pipeline, alert when armed, own cooldown
+# Sensor events (vehicle/knock/shake): consumed before the MAC pipeline,
+# alert when armed, cooldown independent per (node, event type)
 monitor.sensor_last_seen.clear()
 with mock.patch.object(monitor, 'send_alert') as sa:
-    assert monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":123}') is True
+    assert monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":123}') is True
     assert sa.call_count == 1 and 'vehicle' in sa.call_args.kwargs['message'].lower()
-    monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":99}')
+    monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":99}')
     assert sa.call_count == 1                      # cooldown suppresses
-    monitor.vehicle_last_alerts['gate'] = time.time() - 301
-    monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":99}')
+    monitor.event_last_alerts[('gate', 'vehicle')] = time.time() - 301
+    monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":99}')
     assert sa.call_count == 2                      # cooldown expiry re-alerts
     assert 'gate' in monitor.sensor_last_seen      # counts for the sensor watchdog
-    assert monitor.handle_vehicle_event(b'{"mac":"aa"}') is False  # not a vehicle event
-    assert monitor.handle_vehicle_event(b'not json') is False
+    assert monitor.handle_sensor_event(b'{"mac":"aa"}') is False   # not a sensor event
+    assert monitor.handle_sensor_event(b'{"event":"nope"}') is False  # unknown type
+    assert monitor.handle_sensor_event(b'not json') is False
+
+    # knock and shake alert with distinct messages; cooldowns don't cross types
+    assert monitor.handle_sensor_event(b'{"event":"knock","from":"fence-e","peak":812}') is True
+    assert sa.call_count == 3 and 'knock' in sa.call_args.kwargs['message'].lower()
+    assert monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":9}') is True
+    assert sa.call_count == 4 and 'shaking' in sa.call_args.kwargs['message'].lower()
+    monitor.handle_sensor_event(b'{"event":"knock","from":"fence-e","peak":500}')
+    monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":5}')
+    assert sa.call_count == 4                      # both in their own cooldown
 monitor.manual_armed = False
 monitor.manual_armed_ts = time.time()
 with mock.patch.object(monitor, 'send_alert') as sa:
-    monitor.handle_vehicle_event(b'{"event":"vehicle","from":"gate","mag":5}')
+    monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":5}')
+    monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":9}')
     assert sa.call_count == 0                      # disarmed suppresses
 monitor.manual_armed = None
-monitor.vehicle_last_alerts.clear()
+monitor.event_last_alerts.clear()
 
 # Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
 monitor.config.set('Sensors', 'ExpectedSensors', 'gate')

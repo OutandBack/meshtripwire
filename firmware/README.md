@@ -5,8 +5,9 @@ the tripwire, for coverage the base-station scanner can't reach. Publishes the
 same `{"mac","from","rssi"}` JSON to `meshtastic/receive`, so the monitor needs
 no changes.
 
-For the magnetometer-based vehicle sensor, see
-[Vehicle detection node](#vehicle-detection-node-qmc5883l) below.
+For the non-MAC sensor nodes, see
+[Vehicle detection node](#vehicle-detection-node-qmc5883l) and
+[Vibration node](#vibration-node-piezo-disc) below.
 
 ## Flash it
 
@@ -88,6 +89,34 @@ detection on, watch Serial/MQTT during a few drive-bys, then set `TRIGGER_LSB`
 between ambient noise and your smallest vehicle. `BASELINE_ALPHA` controls how
 fast the baseline absorbs drift; a sustained shift longer than `RESEED_MS`
 (a car that parked) becomes the new baseline automatically.
+
+## Vibration node (piezo disc)
+
+`firmware/piezo_vibration/` turns any ESP32 plus a piezo disc (~$0.30) into a
+door-knock or fence-vibration sensor that classifies on-device:
+
+- **knock** — one or a few impacts then quiet (door knock, thrown rock) →
+  `{"event":"knock","from":"fence-e","peak":N}` or `K,<peak>` over LoRa.
+- **shake** — 4+ impacts inside a rolling 5 s window (climbing, fence shaking) →
+  `{"event":"shake","from":"fence-e","hits":N}` or `S,<hits>`.
+- **wind** — sustained low-amplitude noise stays below `SPIKE_THRESHOLD` and
+  produces nothing. The threshold IS the wind filter.
+
+**Wiring**: piezo disc between `PIEZO_PIN` (default GPIO3) and GND with a 1 MΩ
+resistor in parallel to bleed charge. The ESP32's ESD diodes clip knock-energy
+spikes safely; add a 3.3 V zener across large discs on hard-struck surfaces.
+Mount the disc rigidly (epoxy/screw clamp) — a loose disc reads as noise. On a
+fence, one disc per panel-run carries several meters of mesh.
+
+**Calibration**: flash with `DEBUG_PRINT` on and watch the 1/s
+`env_max/baseline/hits_in_window` line. Knock, shake, and let the wind blow,
+then set `SPIKE_THRESHOLD` above the loudest wind reading and below your softest
+real knock. `SHAKE_HITS`/`WINDOW_MS` set how much repetition counts as climbing.
+
+The monitor alerts on both types with independent per-node cooldowns
+(`[Filtering] KnockAlertCooldownSeconds` / `ShakeAlertCooldownSeconds` — shake
+defaults lower because it's high-confidence). Backhaul, arming, SQLite logging,
+and the sensor watchdog behave exactly as for the vehicle node.
 
 ## Reality checks
 
