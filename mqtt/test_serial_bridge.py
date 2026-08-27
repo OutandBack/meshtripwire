@@ -37,6 +37,17 @@ assert json.loads(out) == {'event': 'shake', 'from': 'fence-e', 'hits': 9}, out
 assert payload_for({'decoded': {'text': 'V,notint'}}, NODES) is None
 assert payload_for({'decoded': {'text': 'K,'}, 'fromId': '!aabb'}, NODES) is None
 
+# Mode 1d: Meshtastic Detection Sensor module packet -> v1 contact event
+out = payload_for({'decoded': {'portnum': 'DETECTION_SENSOR_APP', 'text': 'Back Gate'},
+                   'fromId': '!aabb', 'rxRssi': -70}, NODES, sensor_map={'!aabb': 'back-gate'})
+d = json.loads(out)
+assert (d['v'], d['type'], d['event'], d['node']) == (1, 'contact', 'trigger', 'back-gate'), d
+assert d['text'] == 'Back Gate'
+# Without a sensor_map entry, the module's own text names the sensor
+out = payload_for({'decoded': {'portnum': 'DETECTION_SENSOR_APP', 'text': 'Shed PIR'},
+                   'fromId': '!zzzz'}, NODES)
+assert json.loads(out)['node'] == 'Shed PIR'
+
 # Mode 2: no text -> synthesize from the transmitting node's own MAC + GPS
 out = payload_for({'fromId': '!aabb', 'rxRssi': -70}, NODES)
 d = json.loads(out)

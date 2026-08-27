@@ -49,9 +49,22 @@ def payload_for(packet, nodes, sensor_map=None):
     a relay node id to a friendly sensor name for compact-format sightings. Pure
     function so it's testable without a live Meshtastic interface.
     """
+    # Meshtastic Detection Sensor module (stock firmware): a GPIO sensor wired
+    # directly to a mesh node, no custom firmware. The message text is the
+    # module's configured name; sensor_map can override it per relay node.
+    # ponytail: every message (trigger or state broadcast) maps to one trigger
+    # event; the monitor's ContactAlertCooldownSeconds absorbs re-broadcasts.
+    decoded = packet.get('decoded', {})
+    if decoded.get('portnum') == 'DETECTION_SENSOR_APP':
+        text = (decoded.get('text') or '').strip()
+        sender = packet.get('fromId') or str(packet.get('from'))
+        name = (sensor_map or {}).get(sender) or text or sender
+        return json.dumps({'v': 1, 'type': 'contact', 'node': name,
+                           'sensor': 'gpio', 'event': 'trigger', 'text': text})
+
     # Mode 1: a relayed sniffer sighting arriving as a Meshtastic text message —
     # either full JSON, or the compact "AABBCC112233,-64" wire format.
-    text = packet.get('decoded', {}).get('text')
+    text = decoded.get('text')
     if text:
         text = text.strip()
         try:
