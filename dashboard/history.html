@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>meshtripwire — history</title>
+<style>
+  :root {
+    --ink: #141F1A; --panel: #1D2B24; --line: #2C3E34;
+    --text: #C7D4CA; --dim: #7A8F81;
+    --vehicle: #E0A458; --vibration: #E4572E; --contact: #5FB0A5;
+    --wireless: #8FA5C0; --alarm: #FF5C4D;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--ink); color: var(--text); font-family: var(--sans);
+         font-size: 14px; line-height: 1.5; min-height: 100vh; padding: 0 20px 40px; }
+  header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+           padding: 18px 0 14px; border-bottom: 1px solid var(--line); }
+  .wordmark { font-family: var(--mono); font-weight: 800; font-size: 17px;
+              letter-spacing: .14em; color: var(--text); text-decoration: none; }
+  .wordmark .tick { color: var(--vibration); }
+  .crumb { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .back { margin-left: auto; font-family: var(--mono); font-size: 12px;
+          color: var(--contact); text-decoration: none; }
+  .back:hover, .back:focus-visible { text-decoration: underline; }
+
+  form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin: 20px 0 6px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+                 text-transform: uppercase; color: var(--dim); }
+  input, select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 3px; padding: 6px 8px; font-family: var(--mono); font-size: 12px;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--contact); outline-offset: 1px; }
+  input[type=text] { width: 200px; }
+  input[type=datetime-local] { color-scheme: dark; }
+  button {
+    background: var(--panel); color: var(--contact); border: 1px solid var(--line);
+    border-radius: 3px; padding: 6px 14px; font-family: var(--mono); font-size: 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--contact); }
+  .count { font-family: var(--mono); font-size: 11px; color: var(--dim); margin: 8px 0; }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line);
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  th { border-top: 0; color: var(--dim); font-weight: 600; font-size: 11px;
+       letter-spacing: .1em; text-transform: uppercase; }
+  td.t { color: var(--dim); }
+  .badge { font-weight: 700; }
+  .badge.vehicle { color: var(--vehicle); }
+  .badge.vibration { color: var(--vibration); }
+  .badge.contact { color: var(--contact); }
+  .badge.wireless_presence { color: var(--wireless); }
+  td.detail { color: var(--dim); }
+  td.detail b { color: var(--text); font-weight: 600; }
+  .empty { color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 14px 0; }
+  #more { margin: 14px 0; }
+  footer { margin-top: 40px; padding: 12px 0; border-top: 1px solid var(--line);
+           font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  footer a { color: var(--contact); text-decoration: none; }
+  footer a:hover, footer a:focus-visible { text-decoration: underline; }
+  footer .sep { margin: 0 4px; }
+</style>
+</head>
+<body>
+<header>
+  <a class="wordmark" href="/">MESH<span class="tick">|</span>TRIPWIRE</a>
+  <span class="crumb">history search</span>
+  <a class="back" href="/">← live view</a>
+</header>
+
+<form id="filters" onsubmit="return false">
+  <div class="field"><label for="q">search</label>
+    <input type="text" id="q" placeholder="node, MAC, event..."></div>
+  <div class="field"><label for="type">type</label>
+    <select id="type"><option value="">all</option></select></div>
+  <div class="field"><label for="node">node</label>
+    <select id="node"><option value="">all</option></select></div>
+  <div class="field"><label for="event">event</label>
+    <select id="event"><option value="">all</option></select></div>
+  <div class="field"><label for="from">from</label>
+    <input type="datetime-local" id="from"></div>
+  <div class="field"><label for="to">to</label>
+    <input type="datetime-local" id="to"></div>
+  <button id="clear" type="button">clear</button>
+</form>
+<div class="count" id="count"></div>
+
+<table id="results">
+  <tr><th>time</th><th>type</th><th>event</th><th>node</th><th>detail</th></tr>
+</table>
+<button id="more" hidden>load older</button>
+
+<footer>
+  Sponsored by <a href="https://tarnover.com" target="_blank" rel="noopener">Tarnover</a>
+  <span class="sep">·</span> © OaB / Tarnover, LLC
+</footer>
+
+<script>
+const PAGE = 100;
+let offset = 0, rows = [];
+
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+const when = ts => {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) +
+         ' ' + d.toTimeString().slice(0, 8);
+};
+
+function detail(e) {
+  if (e.type === 'wireless_presence') {
+    const m = e.meta || {};
+    return `<b>${esc(m.mac || '?')}</b> ${esc(m.rssi ?? '')} dBm ${m.status === 'whitelisted' ? '(known)' : ''}`;
+  }
+  if (e.event === 'shake') return `<b>${esc(e.value ?? '?')}</b> hits`;
+  if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>`;
+  if (e.type === 'vehicle') return `magnitude <b>${esc(e.value ?? '?')}</b>`;
+  return esc(e.event);
+}
+
+function params() {
+  const v = id => document.getElementById(id).value;
+  const iso = id => v(id) ? new Date(v(id)).toISOString() : '';
+  return new URLSearchParams({
+    q: v('q'), type: v('type'), node: v('node'), event: v('event'),
+    from: iso('from'), to: iso('to'), limit: PAGE, offset,
+  });
+}
+
+function render() {
+  document.getElementById('results').innerHTML =
+    '<tr><th>time</th><th>type</th><th>event</th><th>node</th><th>detail</th></tr>' +
+    rows.map(e =>
+      `<tr><td class="t">${when(e.ts)}</td>` +
+      `<td class="badge ${esc(e.type)}">${e.type === 'wireless_presence' ? 'wireless' : esc(e.type)}</td>` +
+      `<td>${esc(e.event)}</td><td>${esc(e.node)}</td>` +
+      `<td class="detail">${detail(e)}</td></tr>`).join('') +
+    (rows.length ? '' : '<tr><td colspan="5" class="empty">No events match these filters.</td></tr>');
+  document.getElementById('count').textContent =
+    rows.length ? `${rows.length} event${rows.length === 1 ? '' : 's'} shown` : '';
+}
+
+async function search(append) {
+  if (!append) { offset = 0; rows = []; }
+  const page = await fetch('/api/search?' + params()).then(r => r.json());
+  rows = rows.concat(page);
+  document.getElementById('more').hidden = page.length < PAGE;
+  render();
+}
+
+async function loadFacets() {
+  const f = await fetch('/api/facets').then(r => r.json());
+  const fill = (id, vals) => {
+    const sel = document.getElementById(id);
+    for (const v of vals) {
+      const o = document.createElement('option');
+      o.value = o.textContent = v;
+      sel.appendChild(o);
+    }
+  };
+  fill('type', f.types); fill('node', f.nodes); fill('event', f.events);
+}
+
+let debounce;
+document.getElementById('filters').addEventListener('input', () => {
+  clearTimeout(debounce);
+  debounce = setTimeout(() => search(false), 250);
+});
+document.getElementById('clear').addEventListener('click', () => {
+  document.getElementById('filters').reset();
+  search(false);
+});
+document.getElementById('more').addEventListener('click', () => {
+  offset += PAGE;
+  search(true);
+});
+loadFacets().then(() => search(false));
+</script>
+</body>
+</html>

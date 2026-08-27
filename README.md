@@ -57,7 +57,7 @@ Sensors scan for nearby MACs and publish sightings to the base station's MQTT br
 4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`; all sensor activity (MAC and non-MAC alike) also lands as canonical rows in an `events` table
 5. Alerts on unknown MACs via ntfy.sh, webhook, Twilio SMS, or an MQTT topic, rate-limited per MAC; sensor events (vehicle/vibration/contact) alert with per-type cooldowns, and clusters of distinct sensor types within the `[Correlation]` window escalate to a combined HIGH CONFIDENCE alert
 
-A built-in dashboard (`dashboard/server.py`, port 8080) shows a 24h per-node activity strip chart — correlated events line up vertically — plus node health and a live event feed with an unknown-and-strong-signals filter. Stdlib only, read-only, works fully offline.
+A built-in dashboard (`dashboard/server.py`, port 8080) shows a 24h per-node activity strip chart — correlated events line up vertically — plus node health, a notification delivery log, and a live event feed with an unknown-and-strong-signals filter. `/history` searches all past activity by free text (node/MAC/event), type, node, event, and date/time range; pre-v0.2 detections are backfilled into the events table on first start so history reaches all the way back. Stdlib only, read-only, works fully offline.
 
 ### Where MACs come from
 

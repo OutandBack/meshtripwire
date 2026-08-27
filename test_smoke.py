@@ -254,6 +254,21 @@ with tempfile.TemporaryDirectory() as tmp:
     assert row[:4] == ('mqtt', 'meshtripwire/alerts', 1, None), row
     assert 'shaking' in row[4].lower()
 
+    # Backfill: pre-v0.2 detections rows become wireless_presence events, once
+    monitor.db_cursor.execute("DELETE FROM events")
+    monitor.db_cursor.execute("DELETE FROM detections")
+    monitor.db_cursor.execute(
+        "INSERT INTO detections (mac, node, rssi, timestamp, lat, lon) "
+        "VALUES ('0L:D0:00:00:00:00', 'node01', -70, '2026-01-01T00:00:00+00:00', 1.5, 2.5)")
+    monitor.backfill_detections()
+    row = monitor.db_cursor.execute(
+        "SELECT node, event, lat, meta FROM events WHERE type='wireless_presence'").fetchone()
+    assert row[0] == 'node01' and row[1] == 'detected' and row[2] == 1.5, row
+    assert '0L:D0:00:00:00:00' in row[3] and 'backfill' in row[3], row
+    monitor.backfill_detections()   # idempotent: second run adds nothing
+    assert monitor.db_cursor.execute(
+        "SELECT COUNT(*) FROM events WHERE type='wireless_presence'").fetchone()[0] == 1
+
     # MAC detections also produce a wireless_presence event row with meta
     monitor.process_detection(dict(parsed, lat=None, lon=None))
     row = monitor.db_cursor.execute(

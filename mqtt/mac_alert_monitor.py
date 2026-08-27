@@ -147,6 +147,7 @@ def setup_database():
             )
         """)
         db_conn.commit()
+        backfill_detections()
         logging.info(f"Connected to SQLite database: {db_path}")
     except sqlite3.Error as e:
         logging.error(f"Database error connecting to {db_path}: {e}")
@@ -156,6 +157,35 @@ def setup_database():
         logging.error(f"OS error setting up database directory {db_path}: {e}")
         db_conn = None
         db_cursor = None
+
+
+def backfill_detections():
+    """One-time migration: copy pre-v0.2 detections into events as
+    wireless_presence rows, so history search sees everything.
+
+    Idempotent: skipped once any backfilled row exists, and only rows older
+    than the earliest wireless_presence event are copied (newer ones are
+    already double-logged by process_detection).
+    """
+    if not (db_cursor and db_conn):
+        return
+    try:
+        if db_cursor.execute("SELECT 1 FROM events WHERE meta LIKE '%\"backfill\"%' "
+                             "LIMIT 1").fetchone():
+            return
+        db_cursor.execute("""
+            INSERT INTO events (ts, node, type, sensor, event, value, lat, lon, meta)
+            SELECT timestamp, node, 'wireless_presence', NULL, 'detected', NULL, lat, lon,
+                   json_object('mac', mac, 'rssi', rssi, 'backfill', 1)
+            FROM detections
+            WHERE timestamp < COALESCE((SELECT MIN(ts) FROM events
+                                        WHERE type='wireless_presence'), '9999')
+        """)
+        if db_cursor.rowcount > 0:
+            logging.info(f"Backfilled {db_cursor.rowcount} detection(s) into the events table.")
+        db_conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Failed to backfill detections into events: {e}")
 
 
 def prune_old_detections():

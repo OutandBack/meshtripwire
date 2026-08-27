@@ -11,6 +11,9 @@ Endpoints:
     /api/events?limit         recent events, newest first (default 300)
     /api/nodes                per-node last-seen and event count
     /api/notifications?limit  alert delivery attempts per channel (default 100)
+    /history                  full-history search page
+    /api/search?q&type&node&event&from&to&limit&offset   filtered event search
+    /api/facets               distinct types/nodes/events for the filters
 Read-only by design: arming and configuration stay on the MQTT control topic
 and config.ini, so the dashboard adds no attack surface beyond a status page.
 """
@@ -67,6 +70,48 @@ def query_notifications(conn, limit=100):
              'message': msg} for ts, ch, tg, ok, err, msg in rows]
 
 
+def query_search(conn, q='', type_='', node='', event='', tfrom='', tto='',
+                 limit=100, offset=0):
+    """Filtered event search, newest first. Empty filters mean 'match all'."""
+    sql = ("SELECT ts, node, type, sensor, event, value, meta FROM events "
+           "WHERE (? = '' OR type = ?) AND (? = '' OR node = ?) "
+           "AND (? = '' OR event = ?) AND (? = '' OR ts >= ?) AND (? = '' OR ts <= ?) "
+           "AND (? = '' OR node LIKE ? OR event LIKE ? OR meta LIKE ?) "
+           "ORDER BY ts DESC LIMIT ? OFFSET ?")
+    like = f'%{q}%'
+    try:
+        rows = conn.execute(sql, (type_, type_, node, node, event, event,
+                                  tfrom, tfrom, tto, tto,
+                                  q, like, like, like,
+                                  int(limit), int(offset))).fetchall()
+    except sqlite3.OperationalError:
+        return []  # monitor hasn't created the events table yet
+    events = []
+    for ts, node_, t, sensor, ev, value, meta in rows:
+        try:
+            meta = json.loads(meta) if meta else {}
+        except ValueError:
+            meta = {}
+        events.append({'ts': ts, 'node': node_, 'type': t, 'sensor': sensor,
+                       'event': ev, 'value': value, 'meta': meta})
+    return events
+
+
+def query_facets(conn):
+    """Distinct types/nodes/events, for the search page's filter dropdowns."""
+    try:
+        return {
+            'types': [r[0] for r in conn.execute(
+                "SELECT DISTINCT type FROM events ORDER BY type") if r[0]],
+            'nodes': [r[0] for r in conn.execute(
+                "SELECT DISTINCT node FROM events ORDER BY node") if r[0]],
+            'events': [r[0] for r in conn.execute(
+                "SELECT DISTINCT event FROM events ORDER BY event") if r[0]],
+        }
+    except sqlite3.OperationalError:
+        return {'types': [], 'nodes': [], 'events': []}
+
+
 def make_handler(db_path):
     class Handler(BaseHTTPRequestHandler):
         def _json(self, payload):
@@ -96,12 +141,22 @@ def make_handler(db_path):
                     elif url.path == '/api/notifications':
                         limit = parse_qs(url.query).get('limit', ['100'])[0]
                         self._json(query_notifications(conn, limit))
+                    elif url.path == '/api/search':
+                        p = {k: v[0] for k, v in parse_qs(url.query).items()}
+                        self._json(query_search(
+                            conn, q=p.get('q', ''), type_=p.get('type', ''),
+                            node=p.get('node', ''), event=p.get('event', ''),
+                            tfrom=p.get('from', ''), tto=p.get('to', ''),
+                            limit=p.get('limit', 100), offset=p.get('offset', 0)))
+                    elif url.path == '/api/facets':
+                        self._json(query_facets(conn))
                     else:
                         self.send_error(404)
                 finally:
                     conn.close()
-            elif url.path == '/':
-                with open(os.path.join(STATIC_DIR, 'index.html'), 'rb') as f:
+            elif url.path in ('/', '/history'):
+                page = 'history.html' if url.path == '/history' else 'index.html'
+                with open(os.path.join(STATIC_DIR, page), 'rb') as f:
                     body = f.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')

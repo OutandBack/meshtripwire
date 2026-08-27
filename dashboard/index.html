@@ -52,6 +52,9 @@
     letter-spacing: .18em; color: var(--dim); text-transform: uppercase;
     margin: 26px 0 10px;
   }
+  .histlink { color: var(--contact); text-decoration: none; float: right;
+              letter-spacing: .08em; text-transform: none; }
+  .histlink:hover, .histlink:focus-visible { text-decoration: underline; }
   /* Strip chart: one 24h row per node; correlated events align vertically. */
   #chart { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; }
   .strip { display: grid; grid-template-columns: 110px 1fr; align-items: center; }
@@ -133,7 +136,8 @@
   <span class="live" id="live">updated –</span>
 </header>
 
-<h2>24h activity — ticks that line up across rows are correlated</h2>
+<h2>24h activity — ticks that line up across rows are correlated
+  <a class="histlink" href="/history">search all history →</a></h2>
 <div id="chart"><div class="empty">No events yet. Sensors publish, this page listens.</div></div>
 <div class="axis"><span></span><span class="marks"><span>-24h</span><span>-18h</span><span>-12h</span><span>-6h</span><span>now</span></span></div>
 
@@ -155,7 +159,7 @@
 
 <footer>
   Sponsored by <a href="https://tarnover.com" target="_blank" rel="noopener">Tarnover</a>
-  <span class="sep">·</span> © OaB / Tarnover, LLC <span class="sep">·</span> Apache-2.0
+  <span class="sep">·</span> © OaB / Tarnover, LLC
 </footer>
 
 <script>
