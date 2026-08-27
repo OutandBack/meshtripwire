@@ -2,5 +2,6 @@ paho-mqtt>=2.0
 requests
 # Optional, host-side only:
 # meshtastic   # mqtt/serial_bridge.py (USB Meshtastic node -> feed)
+# meshcore     # mqtt/meshcore_bridge.py (USB MeshCore companion radio -> feed)
 # bleak        # sensors/base_scanner.py --ble
 # scapy        # sensors/base_scanner.py --wifi

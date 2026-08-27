@@ -118,7 +118,7 @@ ESP32 sniffer ──serial──▶ field mesh node ──LoRa──▶ base mes
 2. **Field mesh node** — wire the ESP32's TX to a nearby Meshtastic node's RX
    (shared ground) and enable its Serial module in text mode:
    `meshtastic --set serial.enabled true --set serial.mode TEXTMSG --set serial.baud BAUD_115200`.
-   Each line goes out as a LoRa text message. (MeshCore/Reticulum work too — any
+   Each line goes out as a LoRa text message. (Reticulum works too — any
    transport that carries the text line.)
 3. **Base mesh node** — a Meshtastic node on USB to the Pi receives the messages.
 4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0
@@ -131,6 +131,15 @@ The compact format, on-device whitelist, and node→name mapping together cut Lo
 traffic ~10–20× (see the bandwidth notes in `firmware/README.md`). Also keep
 `COOLDOWN_MS` high and `RSSI_MIN` tight — MAC randomization can still generate
 more sightings than the channel carries.
+
+**MeshCore instead of Meshtastic:** build the sensor sketches with
+`SERIAL_MESHCORE 1` — they then frame each line in MeshCore's companion serial
+protocol as a channel message (with a `NODE_ID:` prefix, since MeshCore channel
+messages carry no sender id) for a wired MeshCore companion node (e.g. a Heltec
+V3). At the base, run `python -m mqtt.meshcore_bridge --serial-port
+/dev/ttyUSB0` (needs `pip install meshcore`) against a companion radio on the
+same channel; it maps the prefixed lines to the same MQTT payloads. Sensor and
+base radios must share the channel key.
 
 ### Off-grid alerts (RelayFabric)
 

@@ -42,6 +42,27 @@ def parse_compact(text):
     return mac, rssi
 
 
+def sighting_from_line(line, name):
+    """Parse one compact sensor line into an MQTT payload string, or None.
+
+    Lines: "AABBCC112233,-64" MAC sighting, "V,123" vehicle magnitude,
+    "K,812" knock peak, "S,9" shake hit count. name tags the reporting sensor.
+    Shared by the Meshtastic and MeshCore bridges.
+    """
+    kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits')}
+    if len(line) > 2 and line[1] == ',' and line[0] in kinds:
+        event, field = kinds[line[0]]
+        try:
+            return json.dumps({'event': event, 'from': name, field: int(line[2:])})
+        except ValueError:
+            return None
+    compact = parse_compact(line)
+    if compact:
+        mac, rssi = compact
+        return json.dumps({'mac': mac, 'from': name, 'rssi': rssi})
+    return None
+
+
 def payload_for(packet, nodes, sensor_map=None):
     """Return the MQTT payload string for one received packet, or None to skip.
 
@@ -73,24 +94,14 @@ def payload_for(packet, nodes, sensor_map=None):
             sighting = None
         if isinstance(sighting, dict) and sighting.get('mac'):
             return json.dumps(sighting)
-        # Compact sensor events: "V,123" vehicle magnitude (QMC5883L), "K,812"
-        # knock peak, "S,9" shake hit count (piezo). Value only on the wire —
-        # the relay node's address identifies the sensor (as with sightings).
-        kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits')}
-        if len(text) > 2 and text[1] == ',' and text[0] in kinds:
-            event, field = kinds[text[0]]
-            try:
-                sender = packet.get('fromId') or str(packet.get('from'))
-                name = (sensor_map or {}).get(sender, sender)
-                return json.dumps({'event': event, 'from': name, field: int(text[2:])})
-            except ValueError:
-                pass
-        compact = parse_compact(text)
-        if compact:
-            mac, rssi = compact
-            sender = packet.get('fromId') or str(packet.get('from'))
-            name = (sensor_map or {}).get(sender, sender)
-            return json.dumps({'mac': mac, 'from': name, 'rssi': rssi})
+        # Compact sensor lines ("V,123", "K,812", "S,9", "AABBCC112233,-64"):
+        # value only on the wire — the relay node's address identifies the
+        # sensor, mapped to a friendly name via sensor_map.
+        sender = packet.get('fromId') or str(packet.get('from'))
+        name = (sensor_map or {}).get(sender, sender)
+        sighting = sighting_from_line(text, name)
+        if sighting:
+            return sighting
 
     # Mode 2: presence of the transmitting node itself — tag it by its own MAC.
     rssi = packet.get('rxRssi')
