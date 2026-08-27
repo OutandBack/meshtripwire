@@ -118,6 +118,32 @@ The monitor alerts on both types with independent per-node cooldowns
 defaults lower because it's high-confidence). Backhaul, arming, SQLite logging,
 and the sensor watchdog behave exactly as for the vehicle node.
 
+## Digital sensors via stock Meshtastic (Detection Sensor module)
+
+Reed switches, PIR motion sensors, IR beam-break receivers, float switches —
+anything that yields a GPIO high/low — need **no custom firmware at all**. Wire
+the sensor to a spare GPIO on a Meshtastic node and enable the stock Detection
+Sensor module (firmware ≥ 2.2.2):
+
+```
+meshtastic --set detection_sensor.enabled true \
+           --set detection_sensor.monitor_pin 4 \
+           --set detection_sensor.name "Back Gate" \
+           --set detection_sensor.use_pullup true \
+           --set detection_sensor.detection_triggered_high false
+```
+
+The node sends the configured name over the mesh when the pin changes state.
+`mqtt/serial_bridge.py` maps these packets to
+`{"v":1,"type":"contact","node":...,"event":"trigger"}` events — the sensor
+name comes from `--sensor-map` if the relay node is mapped, else from the
+module's configured name. The monitor alerts with
+`[Filtering] ContactAlertCooldownSeconds` (default 60), which also absorbs the
+module's periodic state re-broadcasts.
+
+Use this for every on/off sensor; reach for custom firmware (above) only when
+the sensor needs on-device analog classification.
+
 ## Reality checks
 
 - **MAC randomization**: modern phones rotate their WiFi MAC, so most sightings

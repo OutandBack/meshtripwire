@@ -15,6 +15,7 @@ flowchart LR
         S3["USB LoRa-mesh bridge<br/>Meshtastic (optional)<br/>(mqtt/serial_bridge.py)"]
         S5["ESP32 vehicle sensor<br/>QMC5883L magnetometer<br/>(firmware/qmc5883l_vehicle)"]
         S6["ESP32 vibration sensor<br/>piezo disc knock/shake<br/>(firmware/piezo_vibration)"]
+        S7["Contact sensors: reed/PIR/beam<br/>stock Meshtastic Detection Sensor<br/>(no custom firmware)"]
     end
 
     S1 -->|MQTT| BROKER
@@ -23,6 +24,7 @@ flowchart LR
     S3 -->|MQTT| BROKER
     S5 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
     S6 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
+    S7 -->|LoRa mesh| BROKER
 
     subgraph base["Raspberry Pi base station (Docker)"]
         BROKER["Mosquitto broker<br/>topic: meshtastic/receive"]
@@ -52,8 +54,8 @@ Sensors scan for nearby MACs and publish sightings to the base station's MQTT br
 1. Parses sightings from MQTT (`meshtastic/receive`)
 2. Drops signals below the RSSI threshold, smooths the rest with an EMA
 3. Checks the MAC against `config/whitelist.txt` (hot-reloaded on file change, no restart needed)
-4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`
-5. Alerts on unknown MACs via ntfy.sh, webhook, Twilio SMS, or an MQTT topic, rate-limited per MAC
+4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`; all sensor activity (MAC and non-MAC alike) also lands as canonical rows in an `events` table
+5. Alerts on unknown MACs via ntfy.sh, webhook, Twilio SMS, or an MQTT topic, rate-limited per MAC; sensor events (vehicle/vibration/contact) alert with per-type cooldowns, and clusters of distinct sensor types within the `[Correlation]` window escalate to a combined HIGH CONFIDENCE alert
 
 An optional Node-RED dashboard (`node-red/flows.json`) shows live sightings with a strong-signals-only toggle.
 
@@ -86,6 +88,17 @@ lines over the LoRa relay), which the monitor routes straight to alerting: no
 whitelist or dwell, but arming and per-type cooldowns
 (`VehicleAlertCooldownSeconds`, `KnockAlertCooldownSeconds`,
 `ShakeAlertCooldownSeconds`) apply. Details in `firmware/README.md`.
+
+Digital sensors (reed switch, PIR, IR beam-break, float) need no custom
+firmware: wire them to a Meshtastic node's GPIO and enable the stock
+**Detection Sensor module** — `serial_bridge.py` maps its mesh messages to
+`contact` events (`ContactAlertCooldownSeconds`, default 60). All events land
+in an `events` table in SQLite alongside the MAC `detections`.
+
+When alertable events from ≥2 distinct sensor types (vehicle, vibration,
+contact, wireless presence) occur within `[Correlation]`'s window (default
+120 s), the monitor additionally sends one combined **HIGH CONFIDENCE** alert
+listing the contributors. Individual alerts still fire normally.
 
 ### Off-grid sensors (LoRa relay)
 
