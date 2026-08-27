@@ -105,7 +105,7 @@ with mock.patch.object(monitor, 'send_alert') as sa:
     assert sa.call_count == 1 and 'vehicle' in sa.call_args.kwargs['message'].lower()
     monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":99}')
     assert sa.call_count == 1                      # cooldown suppresses
-    monitor.event_last_alerts[('gate', 'vehicle')] = time.time() - 301
+    monitor.event_last_alerts[('gate', 'vehicle', 'detected')] = time.time() - 301
     monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":99}')
     assert sa.call_count == 2                      # cooldown expiry re-alerts
     assert 'gate' in monitor.sensor_last_seen      # counts for the sensor watchdog
@@ -121,6 +121,10 @@ with mock.patch.object(monitor, 'send_alert') as sa:
     monitor.handle_sensor_event(b'{"event":"knock","from":"fence-e","peak":500}')
     monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":5}')
     assert sa.call_count == 4                      # both in their own cooldown
+
+    # v1 contact events (Detection Sensor via bridge) alert with their own cooldown
+    assert monitor.handle_sensor_event(b'{"v":1,"type":"contact","node":"back-gate","sensor":"gpio","event":"trigger"}') is True
+    assert sa.call_count == 5 and 'contact' in sa.call_args.kwargs['message'].lower()
 monitor.manual_armed = False
 monitor.manual_armed_ts = time.time()
 with mock.patch.object(monitor, 'send_alert') as sa:
@@ -172,6 +176,25 @@ with tempfile.TemporaryDirectory() as tmp:
     monitor.config.set('Files', 'RetentionDays', '7')
     monitor.prune_old_detections()
     assert count() == 1
+
+    # Events table: canonical events land as rows, meta round-trips, pruning applies
+    monitor.handle_sensor_event(b'{"event":"knock","from":"fence-e","peak":700}')
+    row = monitor.db_cursor.execute(
+        "SELECT node, type, sensor, event, value, meta FROM events "
+        "WHERE type='vibration' ORDER BY id DESC LIMIT 1").fetchone()
+    assert row[:5] == ('fence-e', 'vibration', 'piezo', 'knock', 700.0), row
+    monitor.db_cursor.execute("UPDATE events SET ts = ? WHERE type='vibration'",
+                              ((datetime.now(timezone.utc) - timedelta(days=10)).isoformat(),))
+    monitor.prune_old_detections()
+    assert monitor.db_cursor.execute(
+        "SELECT COUNT(*) FROM events WHERE type='vibration'").fetchone()[0] == 0
+
+    # MAC detections also produce a wireless_presence event row with meta
+    monitor.process_detection(dict(parsed, lat=None, lon=None))
+    row = monitor.db_cursor.execute(
+        "SELECT node, event, meta FROM events WHERE type='wireless_presence' "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    assert row[0] == 'node01' and row[1] == 'detected' and 'DE:AD:BE:EF:00:01' in row[2], row
     monitor.db_conn.close()
     monitor.db_conn = monitor.db_cursor = None
 

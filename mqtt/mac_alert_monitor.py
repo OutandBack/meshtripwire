@@ -9,6 +9,7 @@ import threading
 import time # Added for timestamp comparison
 from datetime import datetime, timedelta, timezone
 from notifications.alert_dispatch import send_alert
+from mqtt.events import normalize, canonical, TYPE_REGISTRY
 
 # --- Global State ---
 config = None # To hold loaded configuration
@@ -128,6 +129,13 @@ def setup_database():
                 -- Consider adding raw_rssi if needed later
             )
         """)
+        db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL, node TEXT, type TEXT, sensor TEXT,
+                event TEXT, value REAL, lat REAL, lon REAL, meta TEXT
+            )
+        """)
         db_conn.commit()
         logging.info(f"Connected to SQLite database: {db_path}")
     except sqlite3.Error as e:
@@ -151,6 +159,7 @@ def prune_old_detections():
         db_cursor.execute("DELETE FROM detections WHERE timestamp < ?", (cutoff,))
         if db_cursor.rowcount > 0:
             logging.info(f"Pruned {db_cursor.rowcount} detection(s) older than {days} day(s).")
+        db_cursor.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
         db_conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Failed to prune old detections: {e}")
@@ -207,6 +216,22 @@ def log_to_sqlite(mac, node, smoothed_rssi, timestamp_iso, lat, lon):
             logging.error(f"Failed to execute insert for MAC {mac} to SQLite: {e}")
     else:
         logging.warning(f"Database connection not available, skipping log for MAC {mac}.")
+
+
+def log_event(ev):
+    """Inserts a canonical event into the events table (commit is periodic)."""
+    if not (db_cursor and db_conn):
+        logging.warning(f"Database connection not available, skipping event log for {ev['type']}.")
+        return
+    try:
+        db_cursor.execute(
+            "INSERT INTO events (ts, node, type, sensor, event, value, lat, lon, meta) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ev["ts"], ev["node"], ev["type"], ev["sensor"], ev["event"],
+             float(ev["value"]) if ev["value"] is not None else None,
+             ev["meta"].get("lat"), ev["meta"].get("lon"), json.dumps(ev["meta"])))
+    except sqlite3.Error as e:
+        logging.error(f"Failed to insert event for {ev['node']}: {e}")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -296,6 +321,9 @@ def process_detection(detection_data):
 
     # Log to database
     log_to_sqlite(mac, node_id, smoothed_rssi, timestamp_iso, lat, lon)
+    log_event(canonical("wireless_presence", node_id, "detected",
+                        meta={"mac": mac, "rssi": smoothed_rssi, "status": status,
+                              "lat": lat, "lon": lon}))
     logging.info(f"Processed: MAC={mac}, Node={node_id}, RSSI={smoothed_rssi:.1f}, Status={status}, Loc=({lat},{lon})")
 
     # Return status for alert check
@@ -409,55 +437,42 @@ def trigger_alert_if_needed(mac, node_id, status):
         logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
 
 
-# event -> (payload value field, cooldown config key, default cooldown, alert text)
-SENSOR_EVENTS = {
-    "vehicle": ("mag", "VehicleAlertCooldownSeconds", 300,
-                "ALERT: Vehicle detected by node {node} (magnitude {val})."),
-    "knock":   ("peak", "KnockAlertCooldownSeconds", 300,
-                "ALERT: Impact/knock detected by node {node} (peak {val})."),
-    "shake":   ("hits", "ShakeAlertCooldownSeconds", 120,
-                "ALERT: Sustained shaking/climbing at node {node} ({val} hits)."),
-}
-
-
 def handle_sensor_event(payload_bytes):
-    """Consume a {"event":<type>,"from":node,...} message from a vehicle
-    (QMC5883L) or piezo vibration node. Returns True if consumed.
+    """Consume a sensor-event message (vehicle/vibration/contact, any accepted
+    wire format). Returns True if consumed.
 
     No whitelist/EMA/dwell — these sensors classify on-device and are
-    identity-blind. Gated by arming and a per-(node, event type) cooldown.
+    identity-blind. Gated by arming and a per-(node, type, event) cooldown.
     """
     try:
         payload = json.loads(payload_bytes.decode())
     except (ValueError, UnicodeDecodeError):
         return False
-    if not isinstance(payload, dict) or payload.get("event") not in SENSOR_EVENTS:
-        return False
+    ev = normalize(payload)
+    if ev is None or ev["type"] == "wireless_presence":
+        return False  # MAC sightings belong to the detection pipeline
 
-    event = payload["event"]
-    field, cooldown_key, cooldown_default, template = SENSOR_EVENTS[event]
-    node = str(payload.get("from", "unknown"))
-    val = payload.get(field, 0)
+    reg = TYPE_REGISTRY[(ev["type"], ev["event"])]
+    node, val = ev["node"], ev["value"]
     note_sensor_seen(node)
-    log_to_sqlite(event, node, float(val), datetime.now(timezone.utc).isoformat(),
-                  None, None)
-    logging.info(f"Sensor event: Type={event}, Node={node}, {field}={val}")
+    log_event(ev)
+    logging.info(f"Sensor event: {ev['type']}/{ev['event']} Node={node} value={val}")
 
-    if not is_armed():
-        logging.debug(f"Disarmed; {event} alert from {node} suppressed.")
+    if not reg["alertable"] or not is_armed():
         return True
-    cooldown = config.getint('Filtering', cooldown_key, fallback=cooldown_default)
+    cooldown = config.getint('Filtering', reg["cooldown_key"], fallback=reg["cooldown_default"])
     now_ts = time.time()
-    if now_ts - event_last_alerts.get((node, event), 0) < cooldown:
-        logging.debug(f"{event} alert from {node} suppressed (cooldown {cooldown}s).")
+    key = (node, ev["type"], ev["event"])
+    if now_ts - event_last_alerts.get(key, 0) < cooldown:
+        logging.debug(f"{ev['type']} alert from {node} suppressed (cooldown {cooldown}s).")
         return True
-    event_last_alerts[(node, event)] = now_ts
-    message = template.format(node=node, val=val)
+    event_last_alerts[key] = now_ts
+    message = reg["template"].format(node=node, val=val)
     logging.warning(f"{message} Sending alert.")
     try:
-        send_alert(config, event, node, message=message)
+        send_alert(config, ev["type"], node, message=message)
     except Exception as e:
-        logging.error(f"Error calling send_alert for {event} event from {node}: {e}")
+        logging.error(f"Error calling send_alert for {ev['type']} event from {node}: {e}")
     return True
 
 
