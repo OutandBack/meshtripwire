@@ -32,13 +32,15 @@ smoother there.
 - **WiFi → MQTT** (default, `OUTPUT_SERIAL 0`): sensor must be in WiFi range of
   the broker. Simplest. The single radio is shared between sniffing and the MQTT
   publish handshake, so capture is bursty — fine for presence detection.
-- **Serial → LoRa mesh** (`OUTPUT_SERIAL 1`): the sketch prints one JSON line per
-  sighting to Serial instead. Wire the ESP32 TX to the RX of a nearby LoRa-mesh
-  node — Meshtastic (Serial module, `TEXTMSG`/`PROTO` mode), MeshCore, or a
-  Reticulum interface — which relays each line over LoRa to the base. There,
-  `mqtt/serial_bridge.py` receives the text message and republishes the JSON to
-  the broker (it handles this automatically alongside node-presence detection).
-  This is the off-grid path; the mesh stack is your choice.
+- **Serial → LoRa mesh** (`OUTPUT_SERIAL 1`): the sketch prints one compact line
+  per sighting to Serial instead. Two mesh stacks carry it today:
+  - **Meshtastic**: wire the ESP32 TX to a Meshtastic node's RX and enable its
+    Serial module (`TEXTMSG` mode); `mqtt/serial_bridge.py` at the base
+    republishes each line (alongside node-presence detection).
+  - **LXMF/Reticulum**: connect the sensor's serial to a small relay host
+    running `sensors/rns_field_relay.py` (Pi Zero W + RNode works); at the
+    base, `mqtt/rns_bridge.py` receives the LXMF messages. No firmware
+    changes — the same plain lines ride either stack.
 
 ## Conserving LoRa bandwidth
 

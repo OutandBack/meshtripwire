@@ -118,8 +118,7 @@ ESP32 sniffer ──serial──▶ field mesh node ──LoRa──▶ base mes
 2. **Field mesh node** — wire the ESP32's TX to a nearby Meshtastic node's RX
    (shared ground) and enable its Serial module in text mode:
    `meshtastic --set serial.enabled true --set serial.mode TEXTMSG --set serial.baud BAUD_115200`.
-   Each line goes out as a LoRa text message. (MeshCore/Reticulum work too — any
-   transport that carries the text line.)
+   Each line goes out as a LoRa text message.
 3. **Base mesh node** — a Meshtastic node on USB to the Pi receives the messages.
 4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0
    [--sensor-map config/sensor_nodes.json]` parses the compact line, restores the
@@ -131,6 +130,15 @@ The compact format, on-device whitelist, and node→name mapping together cut Lo
 traffic ~10–20× (see the bandwidth notes in `firmware/README.md`). Also keep
 `COOLDOWN_MS` high and `RSSI_MIN` tight — MAC randomization can still generate
 more sightings than the channel carries.
+
+**Reticulum instead of Meshtastic:** sensors reach an LXMF/Reticulum network
+through a small relay host (e.g. a Pi Zero W with an RNode) instead of a wired
+mesh node — `sensors/rns_field_relay.py` reads the unmodified sensor's serial
+lines and sends each as an LXMF message. At the base, run
+`python -m mqtt.rns_bridge` (needs `pip install rns lxmf`); it prints its LXMF
+destination hash for the relays and republishes their lines as the same MQTT
+payloads. Interfaces (RNode, TCP tunnels, ...) come from each host's own RNS
+config.
 
 ### Off-grid alerts (RelayFabric)
 

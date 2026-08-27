@@ -2,5 +2,7 @@ paho-mqtt>=2.0
 requests
 # Optional, host-side only:
 # meshtastic   # mqtt/serial_bridge.py (USB Meshtastic node -> feed)
+# rns, lxmf    # mqtt/rns_bridge.py and sensors/rns_field_relay.py (Reticulum)
+# pyserial     # sensors/rns_field_relay.py (reads the sensor's serial lines)
 # bleak        # sensors/base_scanner.py --ble
 # scapy        # sensors/base_scanner.py --wifi
