@@ -22,7 +22,9 @@ last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time alerting
 sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
 sensor_offline = set() # Nodes currently flagged offline (alert once, until they return)
-event_last_alerts = {} # Stores {(node, event): last_alert_unix_ts} for sensor-event cooldowns
+event_last_alerts = {} # Stores {(node, type, event): last_alert_unix_ts} for sensor-event cooldowns
+correlation_events = [] # Recent alertable events as (unix_ts, type, node, event) for fusion
+correlation_last_alert = 0.0 # last combined-alert time, for CorrelationCooldownSeconds
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
@@ -216,6 +218,35 @@ def log_to_sqlite(mac, node, smoothed_rssi, timestamp_iso, lat, lon):
             logging.error(f"Failed to execute insert for MAC {mac} to SQLite: {e}")
     else:
         logging.warning(f"Database connection not available, skipping log for MAC {mac}.")
+
+
+def correlation_note(ev_type, node, event_name):
+    """Feed one alertable event into the correlation buffer; escalate when
+    distinct sensor types cluster inside the window.
+
+    Individual alerts are never held back — correlation is pure escalation.
+    """
+    global correlation_last_alert
+    window = config.getint('Correlation', 'CorrelationWindowSeconds', fallback=120)
+    min_types = config.getint('Correlation', 'CorrelationMinTypes', fallback=2)
+    cooldown = config.getint('Correlation', 'CorrelationCooldownSeconds', fallback=600)
+    now_ts = time.time()
+    correlation_events.append((now_ts, ev_type, node, event_name))
+    correlation_events[:] = [e for e in correlation_events if now_ts - e[0] < window]
+    types = {e[1] for e in correlation_events}
+    if len(types) < min_types or now_ts - correlation_last_alert < cooldown:
+        return
+    correlation_last_alert = now_ts
+    lines = [f"  {t} {time.strftime('%H:%M:%S', time.localtime(ts))} {n} ({ev})"
+             for ts, t, n, ev in correlation_events]
+    message = ("HIGH CONFIDENCE EVENT: multiple sensor types triggered within "
+               f"{window}s:\n" + "\n".join(lines))
+    logging.warning(message)
+    try:
+        send_alert(config, "correlated", ",".join(sorted({e[2] for e in correlation_events})),
+                   message=message)
+    except Exception as e:
+        logging.error(f"Error sending correlation alert: {e}")
 
 
 def log_event(ev):
@@ -424,6 +455,7 @@ def trigger_alert_if_needed(mac, node_id, status):
     if not passes_dwell(mac):
         logging.debug(f"Dwell not met for {mac}; alert deferred.")
         return
+    correlation_note("wireless_presence", node_id, "detected")
     cooldown = config.getint('Filtering', 'AlertCooldownSeconds', fallback=300)
     now_ts = time.time()
     if now_ts - last_alert_times.get(mac, 0) < cooldown:
@@ -460,6 +492,7 @@ def handle_sensor_event(payload_bytes):
 
     if not reg["alertable"] or not is_armed():
         return True
+    correlation_note(ev["type"], node, ev["event"])
     cooldown = config.getint('Filtering', reg["cooldown_key"], fallback=reg["cooldown_default"])
     now_ts = time.time()
     key = (node, ev["type"], ev["event"])

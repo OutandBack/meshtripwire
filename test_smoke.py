@@ -100,6 +100,8 @@ monitor.manual_armed = None
 # Sensor events (vehicle/knock/shake): consumed before the MAC pipeline,
 # alert when armed, cooldown independent per (node, event type)
 monitor.sensor_last_seen.clear()
+monitor.correlation_events.clear()             # earlier MAC alerts seeded the buffer
+monitor.correlation_last_alert = time.time()   # hold combined alerts during this section
 with mock.patch.object(monitor, 'send_alert') as sa:
     assert monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":123}') is True
     assert sa.call_count == 1 and 'vehicle' in sa.call_args.kwargs['message'].lower()
@@ -132,6 +134,42 @@ with mock.patch.object(monitor, 'send_alert') as sa:
     monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":9}')
     assert sa.call_count == 0                      # disarmed suppresses
 monitor.manual_armed = None
+monitor.event_last_alerts.clear()
+
+# Correlation: distinct sensor types inside the window escalate once
+monitor.config.set('Correlation', 'CorrelationWindowSeconds', '120')
+monitor.config.set('Correlation', 'CorrelationMinTypes', '2')
+monitor.config.set('Correlation', 'CorrelationCooldownSeconds', '600')
+monitor.correlation_events.clear()
+monitor.correlation_last_alert = 0.0
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.correlation_note('vehicle', 'gate', 'detected')
+    assert sa.call_count == 0                     # one type: nothing
+    monitor.correlation_note('vehicle', 'gate', 'detected')
+    assert sa.call_count == 0                     # same type twice != 2 types
+    monitor.correlation_note('vibration', 'fence-e', 'shake')
+    assert sa.call_count == 1                     # two distinct types: escalate
+    assert 'HIGH CONFIDENCE' in sa.call_args.kwargs['message']
+    assert 'gate' in sa.call_args.kwargs['message'] and 'fence-e' in sa.call_args.kwargs['message']
+    monitor.correlation_note('contact', 'back-gate', 'trigger')
+    assert sa.call_count == 1                     # correlation cooldown holds
+    # Events outside the window don't count
+    monitor.correlation_events[:] = [(time.time() - 121, 'vehicle', 'gate', 'detected')]
+    monitor.correlation_last_alert = 0.0
+    monitor.correlation_note('vibration', 'fence-e', 'shake')
+    assert sa.call_count == 1                     # stale vehicle event expired
+
+# Alertable sensor events feed correlation even when their own cooldown mutes them
+monitor.correlation_events.clear()
+monitor.correlation_last_alert = 0.0
+monitor.event_last_alerts.clear()
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":50}')
+    monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":60}')  # muted by cooldown
+    monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":6}')
+    combined = [c for c in sa.call_args_list if 'HIGH CONFIDENCE' in c.kwargs.get('message', '')]
+    assert len(combined) == 1, sa.call_args_list
+monitor.correlation_events.clear()
 monitor.event_last_alerts.clear()
 
 # Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
