@@ -15,8 +15,6 @@ monitor.setup_logging()  # would raise if interpolation mangled the %(asctime)s 
 assert monitor.config.getint('Filtering', 'StateTimeoutSeconds') == 3600
 assert monitor.config.getint('Filtering', 'AlertCooldownSeconds') == 300
 
-# flows.json is valid JSON
-json.load(open('node-red/flows.json'))
 
 # Message pipeline: parse -> process -> alert (dispatch mocked, DB skipped)
 monitor.whitelist = {'AA:BB:CC:DD:EE:FF'}

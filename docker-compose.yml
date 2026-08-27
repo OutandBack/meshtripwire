@@ -19,13 +19,11 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
 
-  nodered:
-    image: nodered/node-red:latest
+  dashboard:
+    build: .
+    command: ["python", "-m", "dashboard.server"]
     ports:
-      - "1880:1880"
+      - "8080:8080"
     volumes:
-      - nodered_data:/data
+      - ./logs:/app/logs:ro
     restart: unless-stopped
-
-volumes:
-  nodered_data:

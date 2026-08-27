@@ -30,10 +30,10 @@ flowchart LR
         BROKER["Mosquitto broker<br/>topic: meshtastic/receive"]
         MON["Monitor<br/>RSSI filter · EMA · whitelist<br/>(mqtt/mac_alert_monitor.py)"]
         DB[("SQLite<br/>detections.db")]
-        NR["Node-RED<br/>dashboard :1880"]
+        NR["Dashboard<br/>(dashboard/server.py) :8080"]
         BROKER --> MON
-        BROKER --> NR
         MON --> DB
+        DB --> NR
     end
 
     MON -->|unknown MAC| ALERTS
@@ -57,7 +57,7 @@ Sensors scan for nearby MACs and publish sightings to the base station's MQTT br
 4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`; all sensor activity (MAC and non-MAC alike) also lands as canonical rows in an `events` table
 5. Alerts on unknown MACs via ntfy.sh, webhook, Twilio SMS, or an MQTT topic, rate-limited per MAC; sensor events (vehicle/vibration/contact) alert with per-type cooldowns, and clusters of distinct sensor types within the `[Correlation]` window escalate to a combined HIGH CONFIDENCE alert
 
-An optional Node-RED dashboard (`node-red/flows.json`) shows live sightings with a strong-signals-only toggle.
+A built-in dashboard (`dashboard/server.py`, port 8080) shows a 24h per-node activity strip chart — correlated events line up vertically — plus node health and a live event feed with an unknown-and-strong-signals filter. Stdlib only, read-only, works fully offline.
 
 ### Where MACs come from
 
@@ -175,7 +175,7 @@ Reality check: phone MAC randomization means every tier detects *presence*, not
 
 ### Docker (recommended)
 
-Runs the full stack: Mosquitto, the monitor, and Node-RED (dashboard on port 1880).
+Runs the full stack: Mosquitto, the monitor, and the dashboard (port 8080).
 
 ```bash
 docker compose up -d --build
@@ -186,7 +186,7 @@ The monitor reaches the broker via the `MQTT_HOST=mosquitto` env override; `conf
 ### Bare metal (Raspberry Pi)
 
 ```bash
-bash setup/install_dependencies.sh   # apt packages, venv, Mosquitto, Node-RED
+bash setup/install_dependencies.sh   # apt packages, venv, Mosquitto
 ```
 
 Edit `config/config.ini` (broker, thresholds, notification credentials), `config/whitelist.txt` (one MAC per line), and `config/nodes.json` (node ID to GPS mapping). Then, from the project root:

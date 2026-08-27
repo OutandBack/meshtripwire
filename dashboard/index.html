@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>meshtripwire</title>
+<style>
+  :root {
+    --ink: #141F1A;        /* page ground: night pine */
+    --panel: #1D2B24;
+    --line: #2C3E34;
+    --text: #C7D4CA;
+    --dim: #7A8F81;
+    --vehicle: #E0A458;    /* event colors carry the legend */
+    --vibration: #E4572E;
+    --contact: #5FB0A5;
+    --wireless: #8FA5C0;
+    --alarm: #FF5C4D;      /* reserved: offline nodes, dense activity */
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--ink); color: var(--text);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    min-height: 100vh; padding: 0 20px 40px;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+    padding: 18px 0 14px; border-bottom: 1px solid var(--line);
+  }
+  .wordmark {
+    font-family: var(--mono); font-weight: 800; font-size: 17px;
+    letter-spacing: .14em; color: var(--text);
+  }
+  .wordmark .tick { color: var(--vibration); }
+  .stat { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .stat b { color: var(--text); font-weight: 600; }
+  .live { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .live::before {
+    content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--contact); margin-right: 6px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .live::before { animation: pulse 2.4s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .25; } }
+  }
+  .live.stale::before { background: var(--alarm); animation: none; }
+
+  h2 {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: .18em; color: var(--dim); text-transform: uppercase;
+    margin: 26px 0 10px;
+  }
+  /* Strip chart: one 24h row per node; correlated events align vertically. */
+  #chart { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; }
+  .strip { display: grid; grid-template-columns: 110px 1fr; align-items: center; }
+  .strip + .strip { border-top: 1px solid var(--line); }
+  .strip .name {
+    font-family: var(--mono); font-size: 12px; padding: 0 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .strip canvas { display: block; width: 100%; height: 34px; }
+  .axis {
+    display: grid; grid-template-columns: 110px 1fr; font-family: var(--mono);
+    font-size: 10px; color: var(--dim); margin-top: 4px;
+  }
+  .axis .marks { display: flex; justify-content: space-between; padding: 0 2px; }
+
+  .cols { display: grid; grid-template-columns: 280px 1fr; gap: 20px; }
+  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line); }
+  th { border-top: 0; color: var(--dim); font-weight: 600; }
+  td.num { text-align: right; color: var(--dim); }
+  .node-stale { color: var(--alarm); }
+
+  #feed { list-style: none; font-family: var(--mono); font-size: 12px; }
+  #feed li {
+    display: grid; grid-template-columns: 52px 78px 110px 1fr; gap: 10px;
+    padding: 5px 0; border-top: 1px solid var(--line); align-items: baseline;
+  }
+  #feed li:first-child { border-top: 0; }
+  #feed .t { color: var(--dim); }
+  .badge { font-weight: 700; }
+  .badge.vehicle { color: var(--vehicle); }
+  .badge.vibration { color: var(--vibration); }
+  .badge.contact { color: var(--contact); }
+  .badge.wireless_presence { color: var(--wireless); }
+  #feed .detail { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #feed .detail b { color: var(--text); font-weight: 600; }
+
+  .controls { display: flex; gap: 14px; align-items: center; margin: 26px 0 10px; }
+  .controls h2 { margin: 0; }
+  label.toggle {
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    display: inline-flex; gap: 6px; align-items: center; cursor: pointer;
+  }
+  input[type=checkbox] { accent-color: var(--contact); }
+  input[type=checkbox]:focus-visible { outline: 2px solid var(--contact); outline-offset: 2px; }
+  .empty { color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 14px 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="wordmark">MESH<span class="tick">|</span>TRIPWIRE</span>
+  <span class="stat"><b id="n-nodes">–</b> nodes</span>
+  <span class="stat"><b id="n-events">–</b> events / 24h</span>
+  <span class="live" id="live">updated –</span>
+</header>
+
+<h2>24h activity — ticks that line up across rows are correlated</h2>
+<div id="chart"><div class="empty">No events yet. Sensors publish, this page listens.</div></div>
+<div class="axis"><span></span><span class="marks"><span>-24h</span><span>-18h</span><span>-12h</span><span>-6h</span><span>now</span></span></div>
+
+<div class="cols">
+  <div>
+    <h2>Nodes</h2>
+    <table id="nodes"><tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr></table>
+  </div>
+  <div>
+    <div class="controls">
+      <h2>Recent events</h2>
+      <label class="toggle"><input type="checkbox" id="focus">unknown &amp; strong signals only</label>
+    </div>
+    <ul id="feed"></ul>
+  </div>
+</div>
+
+<script>
+const TYPES = { vehicle: 'vehicle', vibration: 'vibration', contact: 'contact',
+                wireless_presence: 'wireless_presence' };
+const COLORS = { vehicle: '#E0A458', vibration: '#E4572E', contact: '#5FB0A5',
+                 wireless_presence: '#8FA5C0' };
+let events = [], nodes = [];
+
+const ago = ts => {
+  const s = (Date.now() - new Date(ts)) / 1000;
+  if (s < 90) return Math.round(s) + 's ago';
+  if (s < 5400) return Math.round(s / 60) + 'm ago';
+  if (s < 129600) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+};
+const hhmm = ts => new Date(ts).toTimeString().slice(0, 5);
+
+function detail(e) {
+  if (e.type === 'wireless_presence') {
+    const m = e.meta || {};
+    return `<b>${m.mac || '?'}</b> ${m.rssi ?? ''} dBm ${m.status === 'whitelisted' ? '(known)' : ''}`;
+  }
+  if (e.event === 'shake') return `<b>${e.value ?? '?'}</b> hits`;
+  if (e.event === 'knock') return `peak <b>${e.value ?? '?'}</b>`;
+  if (e.type === 'vehicle') return `magnitude <b>${e.value ?? '?'}</b>`;
+  return e.event;
+}
+
+function drawChart() {
+  const now = Date.now(), span = 24 * 3600 * 1000;
+  const byNode = new Map();
+  for (const e of events) {
+    const t = new Date(e.ts).getTime();
+    if (now - t > span) continue;
+    if (!byNode.has(e.node)) byNode.set(e.node, []);
+    byNode.get(e.node).push(e);
+  }
+  const chart = document.getElementById('chart');
+  chart.innerHTML = '';
+  if (!byNode.size) {
+    chart.innerHTML = '<div class="empty">No events in the last 24 hours.</div>';
+    return;
+  }
+  for (const [node, evs] of byNode) {
+    const row = document.createElement('div');
+    row.className = 'strip';
+    row.innerHTML = `<span class="name">${node}</span>`;
+    const canvas = document.createElement('canvas');
+    row.appendChild(canvas);
+    chart.appendChild(row);
+    const w = canvas.clientWidth * devicePixelRatio, h = 34 * devicePixelRatio;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    for (const e of evs) {
+      const x = (1 - (now - new Date(e.ts).getTime()) / span) * w;
+      ctx.strokeStyle = COLORS[e.type] || '#7A8F81';
+      ctx.lineWidth = Math.max(1, devicePixelRatio);
+      ctx.beginPath();
+      // wireless sightings are short ticks; classified sensor events full-height
+      const inset = e.type === 'wireless_presence' ? h * 0.3 : h * 0.12;
+      ctx.moveTo(x, inset); ctx.lineTo(x, h - inset); ctx.stroke();
+    }
+  }
+}
+
+function render() {
+  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  document.getElementById('n-nodes').textContent = nodes.length;
+  document.getElementById('n-events').textContent =
+    events.filter(e => new Date(e.ts) > dayAgo).length;
+
+  const nt = document.getElementById('nodes');
+  nt.innerHTML = '<tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr>' +
+    nodes.map(n => {
+      const stale = Date.now() - new Date(n.last_seen) > 30 * 60 * 1000;
+      return `<tr><td>${n.node}</td><td class="${stale ? 'node-stale' : ''}">${ago(n.last_seen)}</td>` +
+             `<td class="num">${n.events}</td></tr>`;
+    }).join('');
+
+  const focus = document.getElementById('focus').checked;
+  const feed = events.filter(e => {
+    if (!focus || e.type !== 'wireless_presence') return true;
+    const m = e.meta || {};
+    return m.status !== 'whitelisted' && (m.rssi ?? -100) >= -70;
+  }).slice(0, 80);
+  document.getElementById('feed').innerHTML = feed.map(e =>
+    `<li><span class="t">${hhmm(e.ts)}</span>` +
+    `<span class="badge ${e.type}">${e.type === 'wireless_presence' ? 'wireless'
+                                     : e.type === 'vehicle' ? 'vehicle' : e.event}</span>` +
+    `<span>${e.node}</span><span class="detail">${detail(e)}</span></li>`
+  ).join('') || '<li class="empty">Nothing matches this filter.</li>';
+
+  drawChart();
+}
+
+async function refresh() {
+  try {
+    [events, nodes] = await Promise.all([
+      fetch('/api/events?limit=500').then(r => r.json()),
+      fetch('/api/nodes').then(r => r.json()),
+    ]);
+    const live = document.getElementById('live');
+    live.textContent = 'updated ' + new Date().toTimeString().slice(0, 8);
+    live.classList.remove('stale');
+    render();
+  } catch (err) {
+    document.getElementById('live').classList.add('stale');
+    document.getElementById('live').textContent = 'connection lost';
+  }
+}
+document.getElementById('focus').addEventListener('change', render);
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

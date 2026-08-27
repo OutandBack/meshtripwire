@@ -6,7 +6,7 @@ echo "🔧 Updating system..."
 sudo apt update
 
 echo "📦 Installing dependencies..."
-sudo apt install -y mosquitto mosquitto-clients python3-pip python3-venv sqlite3 node-red
+sudo apt install -y mosquitto mosquitto-clients python3-pip python3-venv sqlite3
 
 # Get the directory where the script is located
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -21,12 +21,9 @@ echo "✅ Enabling Mosquitto MQTT broker..."
 sudo systemctl enable mosquitto
 sudo systemctl start mosquitto
 
-echo "✅ Enabling Node-RED..."
-sudo systemctl enable nodered.service
-sudo systemctl start nodered.service
-
 echo "📁 Creating logs directory relative to the script location..."
 mkdir -p "$PROJECT_ROOT/logs"
 
 echo "✅ Setup complete. Configure config/config.ini, then run:"
 echo "   cd $PROJECT_ROOT && venv/bin/python -m mqtt.mac_alert_monitor"
+echo "   cd $PROJECT_ROOT && venv/bin/python -m dashboard.server   # dashboard on :8080"
