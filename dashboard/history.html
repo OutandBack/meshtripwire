@@ -13,7 +13,16 @@
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   }
+  /* Night: red flashlight discipline. Hue can't carry meaning under red light,
+     so event types rank by brightness instead. */
+  :root[data-theme="night"] {
+    --ink: #0C0202; --panel: #170504; --line: #38100C;
+    --text: #D9564A; --dim: #7E2C25;
+    --vehicle: #FF7A5C; --vibration: #F04432; --contact: #B03A30; --wireless: #6E241E;
+    --alarm: #FF9A85;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { color-scheme: dark; }
   body { background: var(--ink); color: var(--text); font-family: var(--sans);
          font-size: 14px; line-height: 1.5; min-height: 100vh; padding: 0 20px 40px; }
   header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
@@ -22,9 +31,17 @@
               letter-spacing: .14em; color: var(--text); text-decoration: none; }
   .wordmark .tick { color: var(--vibration); }
   .crumb { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-  .back { margin-left: auto; font-family: var(--mono); font-size: 12px;
+  .back { font-family: var(--mono); font-size: 12px;
           color: var(--contact); text-decoration: none; }
   .back:hover, .back:focus-visible { text-decoration: underline; }
+  #theme {
+    margin-left: auto; background: none; border: 1px solid var(--line);
+    border-radius: 3px; color: var(--dim); font-family: var(--mono);
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 3px 10px; cursor: pointer;
+  }
+  #theme:hover { color: var(--text); border-color: var(--dim); }
+  #theme:focus-visible { outline: 2px solid var(--contact); outline-offset: 2px; }
 
   form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin: 20px 0 6px; }
   .field { display: flex; flex-direction: column; gap: 3px; }
@@ -72,6 +89,7 @@
 <header>
   <a class="wordmark" href="/">MESH<span class="tick">|</span>TRIPWIRE</a>
   <span class="crumb">history search</span>
+  <button id="theme" type="button" aria-label="switch theme">night</button>
   <a class="back" href="/">← live view</a>
 </header>
 
@@ -105,6 +123,22 @@
 <script>
 const PAGE = 100;
 let offset = 0, rows = [];
+
+// Theme: 'night' = red-flashlight mode, persisted per browser
+const themeBtn = document.getElementById('theme');
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t === 'night' ? 'night' : '';
+  themeBtn.textContent = t === 'night' ? 'day' : 'night';  // label = what you switch TO
+}
+let theme;
+try { theme = new URLSearchParams(location.search).get('theme')
+           || localStorage.getItem('mtw-theme') || 'day'; } catch (e) { theme = 'day'; }
+applyTheme(theme);
+themeBtn.addEventListener('click', () => {
+  theme = theme === 'night' ? 'day' : 'night';
+  try { localStorage.setItem('mtw-theme', theme); } catch (e) {}
+  applyTheme(theme);
+});
 
 const esc = s => String(s).replace(/[&<>"']/g,
   c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

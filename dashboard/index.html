@@ -19,7 +19,16 @@
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   }
+  /* Night: red flashlight discipline. Hue can't carry meaning under red light,
+     so event types rank by brightness instead. */
+  :root[data-theme="night"] {
+    --ink: #0C0202; --panel: #170504; --line: #38100C;
+    --text: #D9564A; --dim: #7E2C25;
+    --vehicle: #FF7A5C; --vibration: #F04432; --contact: #B03A30; --wireless: #6E241E;
+    --alarm: #FF9A85;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { color-scheme: dark; }
   body {
     background: var(--ink); color: var(--text);
     font-family: var(--sans); font-size: 14px; line-height: 1.5;
@@ -36,7 +45,15 @@
   .wordmark .tick { color: var(--vibration); }
   .stat { font-family: var(--mono); font-size: 12px; color: var(--dim); }
   .stat b { color: var(--text); font-weight: 600; }
-  .live { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  #theme {
+    margin-left: auto; background: none; border: 1px solid var(--line);
+    border-radius: 3px; color: var(--dim); font-family: var(--mono);
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 3px 10px; cursor: pointer;
+  }
+  #theme:hover { color: var(--text); border-color: var(--dim); }
+  #theme:focus-visible { outline: 2px solid var(--contact); outline-offset: 2px; }
+  .live { font-family: var(--mono); font-size: 11px; color: var(--dim); }
   .live::before {
     content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
     background: var(--contact); margin-right: 6px;
@@ -133,6 +150,7 @@
   <span class="wordmark">MESH<span class="tick">|</span>TRIPWIRE</span>
   <span class="stat"><b id="n-nodes">–</b> nodes</span>
   <span class="stat"><b id="n-events">–</b> events / 24h</span>
+  <button id="theme" type="button" aria-label="switch theme">night</button>
   <span class="live" id="live">updated –</span>
 </header>
 
@@ -163,11 +181,27 @@
 </footer>
 
 <script>
-const TYPES = { vehicle: 'vehicle', vibration: 'vibration', contact: 'contact',
-                wireless_presence: 'wireless_presence' };
-const COLORS = { vehicle: '#E0A458', vibration: '#E4572E', contact: '#5FB0A5',
-                 wireless_presence: '#8FA5C0' };
+// Colors come from the CSS tokens so the strip chart follows the theme
+const typeColor = t => getComputedStyle(document.documentElement)
+  .getPropertyValue('--' + (t === 'wireless_presence' ? 'wireless' : t)).trim() || '#7A8F81';
 let events = [], nodes = [], notifs = [];
+
+// Theme: 'night' = red-flashlight mode, persisted per browser
+const themeBtn = document.getElementById('theme');
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t === 'night' ? 'night' : '';
+  themeBtn.textContent = t === 'night' ? 'day' : 'night';  // label = what you switch TO
+}
+let theme;
+try { theme = new URLSearchParams(location.search).get('theme')
+           || localStorage.getItem('mtw-theme') || 'day'; } catch (e) { theme = 'day'; }
+applyTheme(theme);
+themeBtn.addEventListener('click', () => {
+  theme = theme === 'night' ? 'day' : 'night';
+  try { localStorage.setItem('mtw-theme', theme); } catch (e) {}
+  applyTheme(theme);
+  render();  // redraw the canvas ticks in the new palette
+});
 
 // Everything from the API originated as MQTT payloads anyone on the LAN may
 // have published — escape before it touches innerHTML.
@@ -221,7 +255,7 @@ function drawChart() {
     const ctx = canvas.getContext('2d');
     for (const e of evs) {
       const x = (1 - (now - new Date(e.ts).getTime()) / span) * w;
-      ctx.strokeStyle = COLORS[e.type] || '#7A8F81';
+      ctx.strokeStyle = typeColor(e.type);
       ctx.lineWidth = Math.max(1, devicePixelRatio);
       ctx.beginPath();
       // wireless sightings are short ticks; classified sensor events full-height
