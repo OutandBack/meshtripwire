@@ -88,7 +88,16 @@
   .axis .marks { display: flex; justify-content: space-between; padding: 0 2px; }
 
   .cols { display: grid; grid-template-columns: 280px 1fr; gap: 20px; }
-  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) {
+    .cols { grid-template-columns: 1fr; }
+    /* on a phone the event feed is the point — it goes first */
+    .cols > div:first-child { order: 2; }
+    .histlink { float: none; display: block; margin: 4px 0 0; }
+    .strip { grid-template-columns: 84px 1fr; }
+    /* two-line feed rows: meta on top, full-width detail below */
+    #feed li { grid-template-columns: 52px 78px 1fr; }
+    #feed .detail { grid-column: 1 / -1; white-space: normal; }
+  }
 
   table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
   td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line);

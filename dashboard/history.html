@@ -63,6 +63,8 @@
   button:hover { border-color: var(--contact); }
   .count { font-family: var(--mono); font-size: 11px; color: var(--dim); margin: 8px 0; }
 
+  /* the table scrolls inside its own container; the page never scrolls sideways */
+  .tablewrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
   td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line);
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
@@ -110,9 +112,11 @@
 </form>
 <div class="count" id="count"></div>
 
+<div class="tablewrap">
 <table id="results">
   <tr><th>time</th><th>type</th><th>event</th><th>node</th><th>detail</th></tr>
 </table>
+</div>
 <button id="more" hidden>load older</button>
 
 <footer>
@@ -145,8 +149,9 @@ const esc = s => String(s).replace(/[&<>"']/g,
 
 const when = ts => {
   const d = new Date(ts);
-  return d.toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) +
-         ' ' + d.toTimeString().slice(0, 8);
+  const opts = {month: 'short', day: 'numeric'};
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts) + ' ' + d.toTimeString().slice(0, 8);
 };
 
 function detail(e) {
