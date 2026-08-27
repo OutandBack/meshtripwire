@@ -103,6 +103,14 @@
   input[type=checkbox]:focus-visible { outline: 2px solid var(--contact); outline-offset: 2px; }
   .empty { color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 14px 0; }
 
+  footer {
+    margin-top: 40px; padding: 12px 0; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+  }
+  footer a { color: var(--contact); text-decoration: none; }
+  footer a:hover, footer a:focus-visible { text-decoration: underline; }
+  footer .sep { margin: 0 4px; }
+
   #notif { list-style: none; font-family: var(--mono); font-size: 11px; }
   #notif li {
     display: grid; grid-template-columns: 40px 16px 62px 1fr; gap: 8px;
@@ -144,6 +152,11 @@
     <ul id="feed"></ul>
   </div>
 </div>
+
+<footer>
+  Sponsored by <a href="https://tarnover.com" target="_blank" rel="noopener">Tarnover</a>
+  <span class="sep">·</span> © OaB / Tarnover, LLC <span class="sep">·</span> Apache-2.0
+</footer>
 
 <script>
 const TYPES = { vehicle: 'vehicle', vibration: 'vibration', contact: 'contact',
