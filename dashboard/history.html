@@ -63,21 +63,35 @@
   button:hover { border-color: var(--contact); }
   .count { font-family: var(--mono); font-size: 11px; color: var(--dim); margin: 8px 0; }
 
-  /* the table scrolls inside its own container; the page never scrolls sideways */
-  .tablewrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-  td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line);
-           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
-  th { border-top: 0; color: var(--dim); font-weight: 600; font-size: 11px;
-       letter-spacing: .1em; text-transform: uppercase; }
-  td.t { color: var(--dim); }
+  #results { font-family: var(--mono); font-size: 12px; }
+  .hrow {
+    display: grid; grid-template-columns: 150px 90px 80px 110px 1fr; gap: 10px;
+    padding: 6px 0; border-top: 1px solid var(--line); align-items: baseline;
+  }
+  .hrow > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hrow.head { border-top: 0; color: var(--dim); font-weight: 600; font-size: 11px;
+               letter-spacing: .1em; text-transform: uppercase; }
+  .hrow .t { color: var(--dim); }
   .badge { font-weight: 700; }
   .badge.vehicle { color: var(--vehicle); }
   .badge.vibration { color: var(--vibration); }
   .badge.contact { color: var(--contact); }
   .badge.wireless_presence { color: var(--wireless); }
-  td.detail { color: var(--dim); }
-  td.detail b { color: var(--text); font-weight: 600; }
+  .hrow .detail { color: var(--dim); }
+  .hrow .detail b { color: var(--text); font-weight: 600; }
+  summary { display: none; }
+  @media (max-width: 720px) {
+    /* card rows: time/badge/node, then full-width detail — nothing scrolls sideways */
+    .hrow { grid-template-columns: 92px 86px 1fr; }
+    .hrow .ev, .hrow.head { display: none; }
+    .hrow .t { white-space: normal; }   /* "Aug 27" / "15:15:28" on two lines */
+    .hrow .detail { grid-column: 1 / -1; white-space: normal; }
+    summary {
+      display: list-item; font-family: var(--mono); font-size: 11px;
+      letter-spacing: .14em; text-transform: uppercase; color: var(--contact);
+      cursor: pointer; margin: 16px 0 4px;
+    }
+  }
   .empty { color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 14px 0; }
   #more { margin: 14px 0; }
   footer { margin-top: 40px; padding: 12px 0; border-top: 1px solid var(--line);
@@ -95,6 +109,8 @@
   <a class="back" href="/">← live view</a>
 </header>
 
+<details id="filterbox" open>
+<summary>filters</summary>
 <form id="filters" onsubmit="return false">
   <div class="field"><label for="q">search</label>
     <input type="text" id="q" placeholder="node, MAC, event..."></div>
@@ -110,13 +126,10 @@
     <input type="datetime-local" id="to"></div>
   <button id="clear" type="button">clear</button>
 </form>
+</details>
 <div class="count" id="count"></div>
 
-<div class="tablewrap">
-<table id="results">
-  <tr><th>time</th><th>type</th><th>event</th><th>node</th><th>detail</th></tr>
-</table>
-</div>
+<div id="results"></div>
 <button id="more" hidden>load older</button>
 
 <footer>
@@ -174,15 +187,21 @@ function params() {
   });
 }
 
+// The badge carries the informative name (knock/shake for vibration), so the
+// event column can vanish on mobile without losing meaning.
+const badge = e => e.type === 'wireless_presence' ? 'wireless'
+                 : e.type === 'vibration' ? esc(e.event) : esc(e.type);
+
 function render() {
   document.getElementById('results').innerHTML =
-    '<tr><th>time</th><th>type</th><th>event</th><th>node</th><th>detail</th></tr>' +
+    '<div class="hrow head"><span>time</span><span>type</span><span class="ev">event</span>' +
+    '<span>node</span><span>detail</span></div>' +
     rows.map(e =>
-      `<tr><td class="t">${when(e.ts)}</td>` +
-      `<td class="badge ${esc(e.type)}">${e.type === 'wireless_presence' ? 'wireless' : esc(e.type)}</td>` +
-      `<td>${esc(e.event)}</td><td>${esc(e.node)}</td>` +
-      `<td class="detail">${detail(e)}</td></tr>`).join('') +
-    (rows.length ? '' : '<tr><td colspan="5" class="empty">No events match these filters.</td></tr>');
+      `<div class="hrow"><span class="t">${when(e.ts)}</span>` +
+      `<span class="badge ${esc(e.type)}">${badge(e)}</span>` +
+      `<span class="ev">${esc(e.event)}</span><span>${esc(e.node)}</span>` +
+      `<span class="detail">${detail(e)}</span></div>`).join('') +
+    (rows.length ? '' : '<div class="empty">No events match these filters.</div>');
   document.getElementById('count').textContent =
     rows.length ? `${rows.length} event${rows.length === 1 ? '' : 's'} shown` : '';
 }
@@ -221,6 +240,9 @@ document.getElementById('more').addEventListener('click', () => {
   offset += PAGE;
   search(true);
 });
+// Phones start with filters collapsed so results lead; desktop keeps them open
+if (matchMedia('(max-width: 720px)').matches)
+  document.getElementById('filterbox').open = false;
 loadFacets().then(() => search(false));
 </script>
 </body>
