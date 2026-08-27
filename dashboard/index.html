@@ -71,7 +71,8 @@
   @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
 
   table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-  td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line); }
+  td, th { padding: 6px 8px; text-align: left; border-top: 1px solid var(--line);
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
   th { border-top: 0; color: var(--dim); font-weight: 600; }
   td.num { text-align: right; color: var(--dim); }
   .node-stale { color: var(--alarm); }
@@ -81,6 +82,7 @@
     display: grid; grid-template-columns: 52px 78px 110px 1fr; gap: 10px;
     padding: 5px 0; border-top: 1px solid var(--line); align-items: baseline;
   }
+  #feed li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #feed li:first-child { border-top: 0; }
   #feed .t { color: var(--dim); }
   .badge { font-weight: 700; }
@@ -135,6 +137,11 @@ const COLORS = { vehicle: '#E0A458', vibration: '#E4572E', contact: '#5FB0A5',
                  wireless_presence: '#8FA5C0' };
 let events = [], nodes = [];
 
+// Everything from the API originated as MQTT payloads anyone on the LAN may
+// have published — escape before it touches innerHTML.
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
 const ago = ts => {
   const s = (Date.now() - new Date(ts)) / 1000;
   if (s < 90) return Math.round(s) + 's ago';
@@ -147,12 +154,12 @@ const hhmm = ts => new Date(ts).toTimeString().slice(0, 5);
 function detail(e) {
   if (e.type === 'wireless_presence') {
     const m = e.meta || {};
-    return `<b>${m.mac || '?'}</b> ${m.rssi ?? ''} dBm ${m.status === 'whitelisted' ? '(known)' : ''}`;
+    return `<b>${esc(m.mac || '?')}</b> ${esc(m.rssi ?? '')} dBm ${m.status === 'whitelisted' ? '(known)' : ''}`;
   }
-  if (e.event === 'shake') return `<b>${e.value ?? '?'}</b> hits`;
-  if (e.event === 'knock') return `peak <b>${e.value ?? '?'}</b>`;
-  if (e.type === 'vehicle') return `magnitude <b>${e.value ?? '?'}</b>`;
-  return e.event;
+  if (e.event === 'shake') return `<b>${esc(e.value ?? '?')}</b> hits`;
+  if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>`;
+  if (e.type === 'vehicle') return `magnitude <b>${esc(e.value ?? '?')}</b>`;
+  return esc(e.event);
 }
 
 function drawChart() {
@@ -173,7 +180,7 @@ function drawChart() {
   for (const [node, evs] of byNode) {
     const row = document.createElement('div');
     row.className = 'strip';
-    row.innerHTML = `<span class="name">${node}</span>`;
+    row.innerHTML = `<span class="name">${esc(node)}</span>`;
     const canvas = document.createElement('canvas');
     row.appendChild(canvas);
     chart.appendChild(row);
@@ -202,8 +209,8 @@ function render() {
   nt.innerHTML = '<tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr>' +
     nodes.map(n => {
       const stale = Date.now() - new Date(n.last_seen) > 30 * 60 * 1000;
-      return `<tr><td>${n.node}</td><td class="${stale ? 'node-stale' : ''}">${ago(n.last_seen)}</td>` +
-             `<td class="num">${n.events}</td></tr>`;
+      return `<tr><td>${esc(n.node)}</td><td class="${stale ? 'node-stale' : ''}">${ago(n.last_seen)}</td>` +
+             `<td class="num">${esc(n.events)}</td></tr>`;
     }).join('');
 
   const focus = document.getElementById('focus').checked;
@@ -214,9 +221,9 @@ function render() {
   }).slice(0, 80);
   document.getElementById('feed').innerHTML = feed.map(e =>
     `<li><span class="t">${hhmm(e.ts)}</span>` +
-    `<span class="badge ${e.type}">${e.type === 'wireless_presence' ? 'wireless'
-                                     : e.type === 'vehicle' ? 'vehicle' : e.event}</span>` +
-    `<span>${e.node}</span><span class="detail">${detail(e)}</span></li>`
+    `<span class="badge ${esc(e.type)}">${e.type === 'wireless_presence' ? 'wireless'
+                                     : e.type === 'vehicle' ? 'vehicle' : esc(e.event)}</span>` +
+    `<span>${esc(e.node)}</span><span class="detail">${detail(e)}</span></li>`
   ).join('') || '<li class="empty">Nothing matches this filter.</li>';
 
   drawChart();
