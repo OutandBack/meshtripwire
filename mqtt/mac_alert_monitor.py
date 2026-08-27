@@ -29,6 +29,7 @@ manual_armed = None # None = follow schedule; True/False = manual arm/disarm ove
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
 db_cursor = None
+last_db_commit = 0.0 # for the time-based commit that keeps dashboard reads fresh
 
 # --- Configuration Loading ---
 def load_app_config(config_path='config/config.ini'):
@@ -509,6 +510,21 @@ def handle_sensor_event(payload_bytes):
     return True
 
 
+def maybe_commit():
+    """Commit at most every 5s, so events reach readers (the dashboard) quickly.
+
+    The per-100-message batch commit alone could leave rows pending for hours
+    at a quiet site; this bounds staleness without a commit per message.
+    """
+    global last_db_commit
+    if db_conn and time.time() - last_db_commit > 5:
+        try:
+            db_conn.commit()
+            last_db_commit = time.time()
+        except sqlite3.Error as e:
+            logging.error(f"Failed time-based commit: {e}")
+
+
 def on_message(client, userdata, msg):
     """Callback for when a message is received from MQTT."""
     global message_counter # Access global counter
@@ -543,6 +559,7 @@ def on_message(client, userdata, msg):
     try:
         # Sensor events (vehicle/knock/shake nodes) bypass the MAC pipeline entirely
         if handle_sensor_event(msg.payload):
+            maybe_commit()
             return
 
         # 1. Parse and Validate
@@ -559,6 +576,7 @@ def on_message(client, userdata, msg):
 
         # 3. Trigger Alert (if needed)
         trigger_alert_if_needed(parsed_data["mac"], parsed_data["node_id"], status)
+        maybe_commit()
 
     except Exception as e:
         # Catch-all for unexpected errors during the processing pipeline

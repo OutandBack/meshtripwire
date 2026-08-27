@@ -1,6 +1,7 @@
 """Smoke test: run with `venv/bin/python test_smoke.py` from the project root."""
 import json
 import os
+import sqlite3
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
@@ -224,6 +225,19 @@ with tempfile.TemporaryDirectory() as tmp:
     monitor.prune_old_detections()
     assert monitor.db_cursor.execute(
         "SELECT COUNT(*) FROM events WHERE type='vibration'").fetchone()[0] == 0
+
+    # Time-based commit: events become visible to other connections (the
+    # dashboard) within seconds, not after 100 messages
+    monitor.last_db_commit = 0.0
+    monitor.handle_sensor_event(b'{"event":"vehicle","from":"gate","mag":42}')
+    monitor.maybe_commit()
+    ro = sqlite3.connect(monitor.config.get('Files', 'Database'))
+    assert ro.execute("SELECT COUNT(*) FROM events WHERE type='vehicle'").fetchone()[0] >= 1
+    ro.close()
+    assert monitor.last_db_commit > 0
+    stamp = monitor.last_db_commit
+    monitor.maybe_commit()                      # within the 5s window: no-op
+    assert monitor.last_db_commit == stamp
 
     # MAC detections also produce a wireless_presence event row with meta
     monitor.process_detection(dict(parsed, lat=None, lon=None))
