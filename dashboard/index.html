@@ -102,6 +102,19 @@
   input[type=checkbox] { accent-color: var(--contact); }
   input[type=checkbox]:focus-visible { outline: 2px solid var(--contact); outline-offset: 2px; }
   .empty { color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 14px 0; }
+
+  #notif { list-style: none; font-family: var(--mono); font-size: 11px; }
+  #notif li {
+    display: grid; grid-template-columns: 40px 16px 62px 1fr; gap: 8px;
+    padding: 4px 0; border-top: 1px solid var(--line); align-items: baseline;
+  }
+  #notif li:first-child { border-top: 0; }
+  #notif li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #notif .t { color: var(--dim); }
+  #notif .ok { color: var(--contact); }
+  #notif .fail { color: var(--alarm); }
+  #notif .msg { color: var(--dim); }
+  #notif li.failed .msg { color: var(--alarm); }
 </style>
 </head>
 <body>
@@ -120,6 +133,8 @@
   <div>
     <h2>Nodes</h2>
     <table id="nodes"><tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr></table>
+    <h2>Notification log</h2>
+    <ul id="notif"></ul>
   </div>
   <div>
     <div class="controls">
@@ -135,7 +150,7 @@ const TYPES = { vehicle: 'vehicle', vibration: 'vibration', contact: 'contact',
                 wireless_presence: 'wireless_presence' };
 const COLORS = { vehicle: '#E0A458', vibration: '#E4572E', contact: '#5FB0A5',
                  wireless_presence: '#8FA5C0' };
-let events = [], nodes = [];
+let events = [], nodes = [], notifs = [];
 
 // Everything from the API originated as MQTT payloads anyone on the LAN may
 // have published — escape before it touches innerHTML.
@@ -226,14 +241,22 @@ function render() {
     `<span>${esc(e.node)}</span><span class="detail">${detail(e)}</span></li>`
   ).join('') || '<li class="empty">Nothing matches this filter.</li>';
 
+  document.getElementById('notif').innerHTML = notifs.slice(0, 40).map(n =>
+    `<li class="${n.ok ? '' : 'failed'}"><span class="t">${hhmm(n.ts)}</span>` +
+    `<span class="${n.ok ? 'ok' : 'fail'}">${n.ok ? '✓' : '✗'}</span>` +
+    `<span>${esc(n.channel)}</span>` +
+    `<span class="msg" title="${esc(n.error || n.message || '')}">${esc(n.ok ? (n.message || '') : (n.error || 'failed'))}</span></li>`
+  ).join('') || '<li class="empty">No alerts dispatched yet.</li>';
+
   drawChart();
 }
 
 async function refresh() {
   try {
-    [events, nodes] = await Promise.all([
+    [events, nodes, notifs] = await Promise.all([
       fetch('/api/events?limit=500').then(r => r.json()),
       fetch('/api/nodes').then(r => r.json()),
+      fetch('/api/notifications?limit=40').then(r => r.json()),
     ]);
     const live = document.getElementById('live');
     live.textContent = 'updated ' + new Date().toTimeString().slice(0, 8);

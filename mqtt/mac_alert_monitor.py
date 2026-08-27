@@ -139,6 +139,13 @@ def setup_database():
                 event TEXT, value REAL, lat REAL, lon REAL, meta TEXT
             )
         """)
+        db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL, channel TEXT, target TEXT,
+                ok INTEGER, error TEXT, message TEXT
+            )
+        """)
         db_conn.commit()
         logging.info(f"Connected to SQLite database: {db_path}")
     except sqlite3.Error as e:
@@ -163,6 +170,7 @@ def prune_old_detections():
         if db_cursor.rowcount > 0:
             logging.info(f"Pruned {db_cursor.rowcount} detection(s) older than {days} day(s).")
         db_cursor.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+        db_cursor.execute("DELETE FROM notifications WHERE ts < ?", (cutoff,))
         db_conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Failed to prune old detections: {e}")
@@ -245,7 +253,7 @@ def correlation_note(ev_type, node, event_name):
     logging.warning(message)
     try:
         send_alert(config, "correlated", ",".join(sorted({e[2] for e in correlation_events})),
-                   message=message)
+                   message=message, on_result=record_notification)
     except Exception as e:
         logging.error(f"Error sending correlation alert: {e}")
 
@@ -437,7 +445,8 @@ def check_sensors():
                 logging.warning(f"Sensor '{node}' offline: no data for {int(silent)}s.")
                 try:
                     send_alert(config, node, node,
-                               message=f"Sensor '{node}' offline: no data for {int(silent)}s.")
+                               message=f"Sensor '{node}' offline: no data for {int(silent)}s.",
+                               on_result=record_notification)
                 except Exception as e:
                     logging.error(f"Error sending sensor-offline alert for {node}: {e}")
         elif silent <= timeout and node in sensor_offline:
@@ -465,7 +474,7 @@ def trigger_alert_if_needed(mac, node_id, status):
     last_alert_times[mac] = now_ts
     logging.warning(f"Unknown MAC detected: {mac} from Node {node_id}. Sending alert.")
     try:
-        send_alert(config, mac, node_id) # send_alert handles its own errors
+        send_alert(config, mac, node_id, on_result=record_notification) # send_alert handles its own errors
     except Exception as e:
         logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
 
@@ -504,10 +513,24 @@ def handle_sensor_event(payload_bytes):
     message = reg["template"].format(node=node, val=val)
     logging.warning(f"{message} Sending alert.")
     try:
-        send_alert(config, ev["type"], node, message=message)
+        send_alert(config, ev["type"], node, message=message, on_result=record_notification)
     except Exception as e:
         logging.error(f"Error calling send_alert for {ev['type']} event from {node}: {e}")
     return True
+
+
+def record_notification(channel, target, ok, error, message):
+    """on_result callback for send_alert: one row per channel attempt."""
+    if not (db_cursor and db_conn):
+        return
+    try:
+        db_cursor.execute(
+            "INSERT INTO notifications (ts, channel, target, ok, error, message) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (datetime.now(timezone.utc).isoformat(), channel, target,
+             1 if ok else 0, error, message))
+    except sqlite3.Error as e:
+        logging.error(f"Failed to log notification ({channel}): {e}")
 
 
 def maybe_commit():

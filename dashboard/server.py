@@ -8,8 +8,9 @@ same off-grid Pi as the rest of the stack.
 
 Endpoints:
     /                  the dashboard page
-    /api/events?limit  recent events, newest first (default 300)
-    /api/nodes         per-node last-seen and event count
+    /api/events?limit         recent events, newest first (default 300)
+    /api/nodes                per-node last-seen and event count
+    /api/notifications?limit  alert delivery attempts per channel (default 100)
 Read-only by design: arming and configuration stay on the MQTT control topic
 and config.ini, so the dashboard adds no attack surface beyond a status page.
 """
@@ -54,6 +55,18 @@ def query_nodes(conn):
     return [{'node': n, 'last_seen': ts, 'events': c} for n, ts, c in rows]
 
 
+def query_notifications(conn, limit=100):
+    """Recent notification attempts, newest first."""
+    try:
+        rows = conn.execute(
+            "SELECT ts, channel, target, ok, error, message FROM notifications "
+            "ORDER BY ts DESC LIMIT ?", (int(limit),)).fetchall()
+    except sqlite3.OperationalError:
+        return []  # monitor hasn't created the notifications table yet
+    return [{'ts': ts, 'channel': ch, 'target': tg, 'ok': ok, 'error': err,
+             'message': msg} for ts, ch, tg, ok, err, msg in rows]
+
+
 def make_handler(db_path):
     class Handler(BaseHTTPRequestHandler):
         def _json(self, payload):
@@ -80,6 +93,9 @@ def make_handler(db_path):
                         self._json(query_events(conn, limit))
                     elif url.path == '/api/nodes':
                         self._json(query_nodes(conn))
+                    elif url.path == '/api/notifications':
+                        limit = parse_qs(url.query).get('limit', ['100'])[0]
+                        self._json(query_notifications(conn, limit))
                     else:
                         self.send_error(404)
                 finally:

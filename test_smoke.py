@@ -239,6 +239,21 @@ with tempfile.TemporaryDirectory() as tmp:
     monitor.maybe_commit()                      # within the 5s window: no-op
     assert monitor.last_db_commit == stamp
 
+    # Notification log: real dispatch results land in the notifications table
+    monitor.event_last_alerts.clear()
+    monitor.correlation_events.clear()
+    for ch in ('EnableNtfy', 'EnableWebhook', 'EnableTwilio', 'EnableSmtp'):
+        monitor.config.set('Notifications', ch, 'false')  # no real network calls
+    monitor.config.set('Notifications', 'EnableMqtt', 'true')
+    with mock.patch('paho.mqtt.publish.single'):
+        monitor.handle_sensor_event(b'{"event":"shake","from":"fence-e","hits":7}')
+    monitor.config.set('Notifications', 'EnableMqtt', 'false')
+    row = monitor.db_cursor.execute(
+        "SELECT channel, target, ok, error, message FROM notifications "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    assert row[:4] == ('mqtt', 'meshtripwire/alerts', 1, None), row
+    assert 'shaking' in row[4].lower()
+
     # MAC detections also produce a wireless_presence event row with meta
     monitor.process_detection(dict(parsed, lat=None, lon=None))
     row = monitor.db_cursor.execute(
@@ -247,6 +262,51 @@ with tempfile.TemporaryDirectory() as tmp:
     assert row[0] == 'node01' and row[1] == 'detected' and 'DE:AD:BE:EF:00:01' in row[2], row
     monitor.db_conn.close()
     monitor.db_conn = monitor.db_cursor = None
+
+# Notification results: each channel attempt reports (channel, target, ok, error, message)
+for ch in ('EnableNtfy', 'EnableWebhook', 'EnableTwilio', 'EnableSmtp'):
+    monitor.config.set('Notifications', ch, 'false')
+monitor.config.set('Notifications', 'EnableMqtt', 'true')
+results = []
+with mock.patch('paho.mqtt.publish.single') as single:
+    dispatch.send_alert(monitor.config, 'DE:AD:BE:EF:00:01', 'node01',
+                        on_result=lambda *a: results.append(a))
+    assert results == [('mqtt', 'meshtripwire/alerts', True, None, mock.ANY)], results
+results.clear()
+with mock.patch('paho.mqtt.publish.single', side_effect=OSError('broker down')):
+    dispatch.send_alert(monitor.config, 'DE:AD:BE:EF:00:01', 'node01',
+                        on_result=lambda *a: results.append(a))
+    assert results[0][:3] == ('mqtt', 'meshtripwire/alerts', False) and 'broker down' in results[0][3]
+monitor.config.set('Notifications', 'EnableMqtt', 'false')
+
+# SMTP channel: stdlib smtplib, relay-style submission (SES/Gmail/Mailgun):
+# STARTTLS + login on 587 by default, implicit TLS via SMTP_SSL on 465
+monitor.config.set('Notifications', 'EnableSmtp', 'true')
+monitor.config.set('Notifications', 'SmtpHost', 'email-smtp.us-east-1.amazonaws.com')
+monitor.config.set('Notifications', 'SmtpFrom', 'tripwire@example.com')
+monitor.config.set('Notifications', 'SmtpTo', 'me@example.com')
+monitor.config.set('Notifications', 'SmtpUser', 'AKIAEXAMPLE')
+monitor.config.set('Notifications', 'SmtpPassword', 'sespassword')
+results.clear()
+with mock.patch('notifications.alert_dispatch.smtplib.SMTP') as smtp:
+    dispatch.send_alert(monitor.config, 'DE:AD:BE:EF:00:01', 'node01',
+                        on_result=lambda *a: results.append(a))
+    assert smtp.call_args.args[:2] == ('email-smtp.us-east-1.amazonaws.com', 587)
+    server = smtp.return_value.__enter__.return_value
+    assert server.starttls.call_count == 1
+    assert server.login.call_args.args == ('AKIAEXAMPLE', 'sespassword')
+    assert server.send_message.call_count == 1
+    assert results == [('smtp', 'me@example.com', True, None, mock.ANY)], results
+monitor.config.set('Notifications', 'SmtpPort', '465')
+results.clear()
+with mock.patch('notifications.alert_dispatch.smtplib.SMTP_SSL') as smtps:
+    dispatch.send_alert(monitor.config, 'DE:AD:BE:EF:00:01', 'node01',
+                        on_result=lambda *a: results.append(a))
+    assert smtps.call_args.args[:2] == ('email-smtp.us-east-1.amazonaws.com', 465)
+    assert smtps.return_value.__enter__.return_value.starttls.call_count == 0
+    assert results[0][2] is True
+monitor.config.set('Notifications', 'SmtpPort', '587')
+monitor.config.set('Notifications', 'EnableSmtp', 'false')
 
 # MQTT alert output: publishes the JSON alert to the broker when EnableMqtt is on
 for ch in ('EnableNtfy', 'EnableWebhook', 'EnableTwilio'):
