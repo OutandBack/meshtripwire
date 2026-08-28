@@ -2,7 +2,7 @@
 
 For sensors out of WiFi range, compact serial lines ride a LoRa mesh to the
 base. Two stacks are supported today; the sensor firmware is identical for
-both (`OUTPUT_SERIAL 1` — plain text lines).
+both (`OUTPUT_SERIAL 1`, plain text lines).
 
 ## Meshtastic
 
@@ -10,9 +10,9 @@ both (`OUTPUT_SERIAL 1` — plain text lines).
 ESP32 sensor ──serial──▶ field Meshtastic node ──LoRa──▶ base node ──USB──▶ serial_bridge ─▶ MQTT
 ```
 
-1. **Sensor** — build the sketch with `OUTPUT_SERIAL 1`; it prints one compact
+1. **Sensor**: build the sketch with `OUTPUT_SERIAL 1`; it prints one compact
    line per event to its UART.
-2. **Field mesh node** — wire the ESP32's TX to the node's RX (shared ground)
+2. **Field mesh node**: wire the ESP32's TX to the node's RX (shared ground)
    and enable the Serial module in text mode:
 
     ```bash
@@ -20,9 +20,9 @@ ESP32 sensor ──serial──▶ field Meshtastic node ──LoRa──▶ bas
                --set serial.baud BAUD_115200
     ```
 
-3. **Base mesh node** — a Meshtastic node on USB to the Pi receives the
+3. **Base mesh node**: a Meshtastic node on USB to the Pi receives the
    messages.
-4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0
+4. **Bridge**: `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0
    [--sensor-map config/sensor_nodes.json]` expands each line and republishes
    full JSON to the broker. The same bridge also ingests Detection Sensor
    module packets (contact sensors) and flags mesh-node presence.
@@ -36,14 +36,14 @@ an RNode works) instead of a wired mesh node:
 ESP32 sensor ──serial──▶ relay host (rns_field_relay) ──LXMF/RNS──▶ base (rns_bridge) ─▶ MQTT
 ```
 
-Base side — prints its LXMF destination hash on startup:
+The base side prints its LXMF destination hash on startup:
 
 ```bash
 pip install rns lxmf
 python -m mqtt.rns_bridge --broker-port 1883
 ```
 
-Field side — reads the unmodified sensor's serial lines and sends each as an
+The field side reads the unmodified sensor's serial lines and sends each as an
 LXMF message, prefixed with the node name:
 
 ```bash
@@ -63,11 +63,11 @@ config (`~/.reticulum`).
 
 ## Off-grid alerts (RelayFabric)
 
-ntfy, webhook, Twilio, and SMTP all need the Internet — the opposite of the
+ntfy, webhook, Twilio, and SMTP all need the Internet, the opposite of the
 remote sites this is built for. Set `EnableMqtt = true` in `[Notifications]`
 and the monitor publishes each alert as JSON to `MqttAlertTopic` on the same
 broker. [RelayFabric](https://github.com/RelayFabric/RelayFabric) subscribes
-there and relays alerts over a LoRa mesh — Meshtastic, MeshCore, or
-LXMF/Reticulum — so they reach you with no cellular. See RelayFabric's
+there and relays alerts over a LoRa mesh (Meshtastic, MeshCore, or
+LXMF/Reticulum), so they reach you with no cellular. See RelayFabric's
 `meshtripwire` plugin (formatted alerts) or its `examples/meshtripwire.yaml`
 (generic `mqtt` plugin, no extra code).

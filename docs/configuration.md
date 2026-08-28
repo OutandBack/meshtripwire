@@ -68,16 +68,16 @@ Channel switches: `EnableNtfy`, `EnableWebhook`, `EnableTwilio`, `EnableSmtp`,
 
 ## Cutting false alarms
 
-Alerting on *every* unknown MAC is unusable — MAC randomization means constant
+Alerting on *every* unknown MAC is unusable: MAC randomization means constant
 strangers. Three gates, all in `config.ini`:
 
-- **Dwell** (`DwellSeconds`) — only alert once a device has *persisted*, so a
+- **Dwell** (`DwellSeconds`): only alert once a device has *persisted*, so a
   passing car is ignored and someone loitering isn't. The single biggest
   false-positive reducer; try 120–300 s.
-- **Arming** (`Schedule = 22:00-06:00`) — only alert during away/asleep hours,
+- **Arming** (`Schedule = 22:00-06:00`): only alert during away/asleep hours,
   or drive it live over `ControlTopic` (e.g. a phone-presence automation
   disarms while you're home). Set `ControlSecret` so a random broker client
   can't disarm you; overrides auto-revert after `ControlOverrideTTL`.
-- **Sensor watchdog** (`ExpectedSensors = gate,fence`) — alerts if a listed
+- **Sensor watchdog** (`ExpectedSensors = gate,fence`): alerts if a listed
   sensor goes silent, so a dead node or downed mesh link doesn't become a
   silent blind spot.

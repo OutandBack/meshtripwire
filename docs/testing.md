@@ -16,7 +16,7 @@ venv/bin/python -m dashboard.test_server    # dashboard queries: events, nodes,
 ```
 
 All suites end with an `... OK` line; any assertion failure is a real
-regression. Network channels are mocked in tests — no test sends a real
+regression. Network channels are mocked in tests; no test sends a real
 notification.
 
 ## Firmware
@@ -28,7 +28,7 @@ arduino-cli compile --jobs 2 --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc firmware/e
 ```
 
 There is no on-target test harness; the `DEBUG_PRINT` serial readout is the
-verification tool — flash, watch the once-per-second line, exercise the
+verification tool: flash, watch the once-per-second line, exercise the
 sensor physically ([calibration guides](firmware.md)).
 
 ## End-to-end against a live stack
@@ -41,5 +41,5 @@ curl -s localhost:8080/api/events?limit=3
 ```
 
 A synthetic event exercises ingest → classification → storage → alerting →
-dashboard in one command. The alert channels fire for real here — point ntfy
+dashboard in one command. The alert channels fire for real here, so point ntfy
 at a scratch topic first if you don't want the ping.

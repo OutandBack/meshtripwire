@@ -1,6 +1,6 @@
 # Getting Started
 
-The base station alone detects nothing — the fastest working tripwire is the
+The base station alone detects nothing; the fastest working tripwire is the
 Docker stack plus the base scanner on the Pi's own radios. Total time: about
 ten minutes.
 
@@ -22,7 +22,7 @@ in place. If port 1883 is taken on the host, override it:
 !!! warning "Broker exposure"
     The bundled `setup/mosquitto.conf` allows anonymous LAN publishes so
     sensors work out of the box. Anyone on the LAN can then publish
-    detections — add auth/TLS (`[MQTT] Username`/`Password`/`UseTLS`) before
+    detections; add auth/TLS (`[MQTT] Username`/`Password`/`UseTLS`) before
     exposing the broker further. See [Arming & Security](security.md).
 
 ## Bare metal (Raspberry Pi)
@@ -55,7 +55,7 @@ venv/bin/pip install bleak                                  # for --ble; scapy f
 venv/bin/python -m sensors.base_scanner --node base --ble   # add --wifi wlan1mon for WiFi
 ```
 
-Open the dashboard at `http://<pi>:8080` — BLE sightings appear within
+Open the dashboard at `http://<pi>:8080`; BLE sightings appear within
 seconds. From here:
 
 - add [ESP32 sniffer nodes](sensors.md) for coverage beyond the Pi's radios

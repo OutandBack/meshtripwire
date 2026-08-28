@@ -1,7 +1,7 @@
 # Alerts & Notifications
 
 Every alert dispatches to all enabled channels, and **every delivery attempt
-is logged** per channel — success or failure with the error — to the
+is logged** per channel, success or failure with the error, to the
 `notifications` table, visible in the dashboard's notification log panel.
 
 ## Channels
@@ -15,7 +15,7 @@ NtfyTopic = meshtripwire-<long-random-suffix>
 # NtfyToken = tk_xxxxxxxxxxxxxxxxxxxx
 ```
 
-On the public ntfy.sh the topic name IS the access control — keep it long and
+On the public ntfy.sh the topic name IS the access control: keep it long and
 random (`python -c "import secrets; print('meshtripwire-'+secrets.token_hex(12))"`),
 or use an account/self-hosted server with an access token.
 
@@ -26,7 +26,7 @@ EnableWebhook = true
 WebhookURL = https://example.com/webhook
 ```
 
-POSTs `{"text": message}` — fits Slack/Discord/Matrix-style incoming webhooks.
+POSTs `{"text": message}`, which fits Slack/Discord/Matrix-style incoming webhooks.
 
 ### Twilio SMS
 
@@ -38,12 +38,12 @@ TwilioFromPhone = +1234567890
 TwilioToPhone = +1987654321
 ```
 
-### SMTP email — direct or via a relay
+### SMTP email (direct or via a relay)
 
 Built for relay-style submission the way AWS SES, Gmail, Mailgun, and
 SendGrid actually work: STARTTLS + login on port 587 (the default), or
 implicit TLS on port 465. Leave `SmtpUser` empty for an unauthenticated local
-relay. Stdlib only — no extra dependency.
+relay. Stdlib only, no extra dependency.
 
 ```ini
 EnableSmtp = true
@@ -64,8 +64,8 @@ MqttAlertTopic = meshtripwire/alerts
 ```
 
 Republishes each alert as JSON (`mac`, `node`, `ts`, `message`) on the same
-broker, for Node-RED-style consumers, Home Assistant, or — the reason it
-exists — [RelayFabric carrying alerts over LoRa](off-grid.md#off-grid-alerts-relayfabric)
+broker, for Node-RED-style consumers, Home Assistant, or, the reason it
+exists, [RelayFabric carrying alerts over LoRa](off-grid.md#off-grid-alerts-relayfabric)
 when there is no Internet at all.
 
 ## Alert types
@@ -85,7 +85,7 @@ All alert types respect [arming](security.md); cooldowns are independent per
 
 ## The notification log
 
-Each channel attempt records `(channel, target, ok, error, message)` — so an
+Each channel attempt records `(channel, target, ok, error, message)`, so an
 alert's row set answers "did this actually reach me, and by which path?"
 Failures show the concrete error (timeout, DNS, SMTP rejection). The dashboard
 shows the latest 40; the full log is in SQLite

@@ -1,19 +1,19 @@
 # Dashboard
 
 A built-in, read-only status page at port 8080. Stdlib Python + one
-self-contained HTML page per view — no framework, no CDN, no external assets,
+self-contained HTML page per view: no framework, no CDN, no external assets,
 because the whole point is working where there is no Internet.
 
 ## Live view (`/`)
 
-- **24h strip chart** — one row per node, events as color-coded ticks
+- **24h strip chart**: one row per node, events as color-coded ticks
   (vehicle amber, vibration ember, contact teal, wireless slate). Correlated
-  events **line up vertically across rows** — the chart shows the fusion
+  events **line up vertically across rows**: the chart shows the fusion
   logic structurally.
-- **Nodes** — per-node last-seen and totals; nodes silent past 30 minutes
+- **Nodes**: per-node last-seen and totals; nodes silent past 30 minutes
   flag in red.
-- **Notification log** — the last 40 delivery attempts with ✓/✗ and errors.
-- **Recent events** — live feed, refreshing every 5 s, with an
+- **Notification log**: the last 40 delivery attempts with ✓/✗ and errors.
+- **Recent events**: live feed, refreshing every 5 s, with an
   "unknown & strong signals only" filter that hides whitelisted gear and weak
   sightings.
 
@@ -21,7 +21,7 @@ because the whole point is working where there is no Internet.
 
 Searches **all** recorded activity (pre-v0.2 detections are backfilled in):
 
-- free text — matches node names, event names, and meta content including MACs
+- free text: matches node names, event names, and meta content including MACs
 - type / node / event dropdowns, populated from the actual data
 - date/time range with native pickers, converted to UTC for the query
 - 100 rows per page with "load older"
@@ -42,7 +42,7 @@ scrolls horizontally.
 
 ## API
 
-The dashboard's endpoints are plain JSON over GET — usable by scripts and
+The dashboard's endpoints are plain JSON over GET, usable by scripts and
 automations directly:
 
 | Endpoint | Returns |
@@ -55,7 +55,7 @@ automations directly:
 
 ## Security posture
 
-Read-only by design: no arm/disarm buttons, no configuration endpoints —
+Read-only by design: no arm/disarm buttons, no configuration endpoints;
 control stays on the secret-gated MQTT topic. All MQTT-sourced strings are
 HTML-escaped before rendering (sensor names arrive from a broker that may
 allow anonymous LAN publishes; see [Arming & Security](security.md)).

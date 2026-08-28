@@ -1,8 +1,8 @@
 # meshtripwire
 
 **Camera-free, cloud-free perimeter security for remote properties.** Cheap
-distributed sensors — WiFi/BLE sniffers, a magnetometer on the driveway, piezo
-discs on the fence, reed switches on the gates — feed a Raspberry Pi base
+distributed sensors (WiFi/BLE sniffers, a magnetometer on the driveway, piezo
+discs on the fence, reed switches on the gates) feed a Raspberry Pi base
 station that filters, classifies, correlates, logs, and alerts. Everything runs
 over WiFi/MQTT by default; an optional LoRa mesh (Meshtastic or LXMF/Reticulum)
 extends sensors and alerts off-grid where there is no Internet or WiFi.
@@ -12,7 +12,7 @@ or Reticulum projects.
 
 ```mermaid
 flowchart LR
-    subgraph sensors["Sensors — MAC sightings + classified events"]
+    subgraph sensors["Sensors: MAC sightings + classified events"]
         S1["Base scanner<br/>WiFi + BLE"]
         S2["ESP32 sniffers<br/>WiFi / BLE"]
         S5["Vehicle sensor<br/>QMC5883L magnetometer"]
@@ -49,14 +49,14 @@ Commercial security systems assume cellular coverage, cloud subscriptions, and
 mains power. A remote cabin, ranch gate, or trailhead has none of those.
 meshtripwire's answer:
 
-- **Sensors cost pennies to a few dollars** — a $0.30 piezo disc, a $2
-  magnetometer, a $3 ESP32 — so you buy *coverage*, not one fancy device.
-- **Classification happens on the sensor** — a knock is distinguished from
+- **Sensors cost pennies to a few dollars**: a $0.30 piezo disc, a $2
+  magnetometer, a $3 ESP32, so you buy *coverage*, not one fancy device.
+- **Classification happens on the sensor**: a knock is distinguished from
   climbing on the ESP32 itself, so a LoRa link carrying a few bytes per event
   is enough backhaul.
-- **The base station owns all state** — MQTT in, SQLite storage, correlation
+- **The base station owns all state**: MQTT in, SQLite storage, correlation
   and alerting logic in one Python monitor, a read-only dashboard out.
-- **No Internet required end to end** — sensors reach the base over LoRa, and
+- **No Internet required end to end**: sensors reach the base over LoRa, and
   alerts leave over LoRa via [RelayFabric](https://github.com/RelayFabric/RelayFabric).
 
 ## Feature status
@@ -85,7 +85,7 @@ unit-tested against the documented protocol but has not touched hardware.
 
 ## Where to start
 
-- [Getting Started](getting-started.md) — base station up in ten minutes
-- [Sensors](sensors.md) — what can feed the tripwire, cheapest first
-- [Hardware](hardware.md) — the bill of materials
-- [Off-Grid Backhaul](off-grid.md) — when the sensor is beyond WiFi
+- [Getting Started](getting-started.md): base station up in ten minutes
+- [Sensors](sensors.md): what can feed the tripwire, cheapest first
+- [Hardware](hardware.md): the bill of materials
+- [Off-Grid Backhaul](off-grid.md): when the sensor is beyond WiFi

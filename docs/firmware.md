@@ -10,7 +10,7 @@ the mesh).
 
 1. Arduino IDE with the ESP32 board package (or PlatformIO with
    `platform = espressif32`), plus the **PubSubClient** library. BLE mode uses
-   the core's built-in `BLEDevice` — no extra install.
+   the core's built-in `BLEDevice`; no extra install.
 2. Edit the sketch's config block: WiFi credentials, `MQTT_HOST`/`MQTT_PORT`,
    a unique `NODE_ID`, and the sensor's calibration knobs.
 3. On an ESP32-C3 SuperMini: hold **BOOT**, tap **RESET**, release BOOT to
@@ -21,13 +21,13 @@ the mesh).
 
 ## WiFi/BLE sniffer (`esp32_sniffer`)
 
-One board sniffs one radio — set `SCAN_MODE` to `SCAN_WIFI` or `SCAN_BLE` and
+One board sniffs one radio: set `SCAN_MODE` to `SCAN_WIFI` or `SCAN_BLE` and
 deploy a mix. BLE coexists cleanly with the WiFi/MQTT uplink; WiFi promiscuous
 mode has to time-slice against the uplink, so serial→LoRa backhaul is smoother
 there.
 
 Key knobs: `RSSI_MIN` (ignore weak frames), `COOLDOWN_MS` (per-MAC re-publish
-suppression), on-device `WHITELIST[]` (known MACs are never transmitted — they
+suppression), on-device `WHITELIST[]` (known MACs are never transmitted; they
 would waste LoRa airtime).
 
 ## Vehicle sensor (`qmc5883l_vehicle`)
@@ -48,7 +48,7 @@ automatically.
 **Wiring**: piezo disc between `PIEZO_PIN` (default GPIO3) and GND with a
 1 MΩ resistor in parallel to bleed charge. The ESP32's ESD diodes clip
 knock-energy spikes safely; add a 3.3 V zener across large discs on
-hard-struck surfaces. Mount the disc rigidly (epoxy/screw clamp) — a loose
+hard-struck surfaces. Mount the disc rigidly (epoxy/screw clamp); a loose
 disc reads as noise. On a fence, one disc per panel-run carries several meters
 of mesh.
 
@@ -71,10 +71,10 @@ as climbing.
 LoRa is a few kbps with legal duty-cycle limits. Three measures, on by
 default, together cut traffic roughly 10–20×:
 
-- **Compact wire format** — `AABBCC112233,-64` (~16 bytes) instead of JSON
+- **Compact wire format**: `AABBCC112233,-64` (~16 bytes) instead of JSON
   (~56); sensor events are smaller still (`V,123`, `K,812`, `S,9`).
-- **On-device whitelist** — known MACs never transmit.
-- **Sensor id dropped on the wire** — the relaying mesh node's own address
+- **On-device whitelist**: known MACs never transmit.
+- **Sensor id dropped on the wire**: the relaying mesh node's own address
   identifies the sensor; map node id → friendly name at the base with
   `--sensor-map`.
 
