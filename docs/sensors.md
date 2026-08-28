@@ -1,0 +1,72 @@
+# Sensors
+
+Anything that publishes to the broker is a sensor. In order of effort:
+
+## Base scanner — $0
+
+`sensors/base_scanner.py` sniffs real WiFi/BLE MACs on the machine running the
+broker. No firmware; range limited to the base station's radios.
+
+```bash
+venv/bin/python -m sensors.base_scanner --node base --ble [--wifi wlan1mon]
+```
+
+## ESP32 sniffer nodes — $2–3 each
+
+`firmware/esp32_sniffer/` — dedicated ESP32s doing promiscuous WiFi *or* BLE
+capture (one radio per board), backhauling over WiFi/MQTT or serial→LoRa.
+Deploy several for distributed coverage. See [Firmware](firmware.md).
+
+## Vehicle sensor — QMC5883L magnetometer
+
+`firmware/qmc5883l_vehicle/` — a vehicle's ferrous mass shifts the local
+magnetic field as it passes within ~2–5 m. The node tracks a slow baseline and
+reports when the magnitude deviates past a threshold. Catches vehicles carrying
+**no phone or BLE gear at all** — the case MAC sniffing misses. A car that
+parks becomes the new baseline automatically.
+
+## Vibration sensor — piezo disc
+
+`firmware/piezo_vibration/` — a $0.30 piezo disc glued to a door, gate, or
+fence run, classified on-device:
+
+- **knock** — one or a few impacts then quiet (door knock, thrown rock)
+- **shake** — 4+ impacts inside a rolling 5 s window (climbing, fence shaking)
+- **wind** — sustained low-amplitude noise stays below the spike threshold and
+  produces nothing; the threshold *is* the wind filter
+
+## Contact sensors — no custom firmware
+
+Reed switches, PIR motion sensors, IR beam-break receivers, float switches —
+anything producing a GPIO high/low — wire straight to a Meshtastic node's spare
+GPIO using the stock **Detection Sensor module** (firmware ≥ 2.2.2):
+
+```bash
+meshtastic --set detection_sensor.enabled true \
+           --set detection_sensor.monitor_pin 4 \
+           --set detection_sensor.name "Back Gate" \
+           --set detection_sensor.use_pullup true \
+           --set detection_sensor.detection_triggered_high false
+```
+
+The node sends the configured name over the mesh on pin change;
+`mqtt/serial_bridge.py` maps it to a `contact/trigger` event. Use this for
+every on/off sensor — reach for custom firmware only when the sensor needs
+on-device analog classification.
+
+## USB LoRa-mesh bridge — mesh-device presence
+
+`mqtt/serial_bridge.py` also flags the *presence* of any Meshtastic node it
+hears over RF, tagged by the node's own radio MAC — a tripwire for people
+carrying mesh devices.
+
+## Reality checks
+
+- **MAC randomization**: modern phones rotate WiFi/BLE MACs. Every wireless
+  tier detects *presence*, not *identity* — whitelist only fixed-MAC gear
+  (cameras, laptops, sensors), treat phone MACs as ephemeral, and lean on the
+  [dwell filter](configuration.md#cutting-false-alarms).
+- **Coverage beats sophistication**: more cheap nodes outperform one fancy
+  node.
+- **Legality**: passively logging MAC addresses may be regulated where you
+  are. Your property, your responsibility.

@@ -1,0 +1,52 @@
+[project]
+site_name = "meshtripwire Documentation"
+copyright = "Copyright &copy; 2026 OaB / Tarnover, LLC &middot; Sponsored by <a href=\"https://tarnover.com\" target=\"_blank\" rel=\"noopener\">Tarnover</a> &middot; Apache-2.0"
+site_url = "https://docs.meshtripwire.org/"
+site_description = "Camera-free, cloud-free perimeter security for remote properties: cheap distributed sensors, on-device classification, MQTT + SQLite at a Raspberry Pi base station, and off-grid alerting over LoRa mesh."
+repo_url = "https://github.com/OutandBack/meshtripwire"
+repo_name = "OutandBack/meshtripwire"
+nav = [
+  {"Home" = "index.md"},
+  {"Getting Started" = "getting-started.md"},
+  {"Architecture" = "architecture.md"},
+  {"Sensors" = "sensors.md"},
+  {"Firmware" = "firmware.md"},
+  {"Off-Grid Backhaul" = "off-grid.md"},
+  {"Configuration" = "configuration.md"},
+  {"Alerts & Notifications" = "alerts.md"},
+  {"Dashboard" = "dashboard.md"},
+  {"Arming & Security" = "security.md"},
+  {"Hardware" = "hardware.md"},
+  {"Testing" = "testing.md"},
+]
+
+extra_css = ["stylesheets/extra.css"]
+
+[project.theme]
+language = "en"
+
+# Dark default (a perimeter tool is checked at night), toggle to light.
+# Brand: the dashboard's night-pine green with its teal accent.
+[[project.theme.palette]]
+scheme = "slate"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to dark mode"
+
+[project.theme.features]
+navigation = ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "navigation.tracking"]
+search = ["search.suggest", "search.highlight"]
+content = ["content.code.copy", "content.code.annotate"]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/OutandBack/meshtripwire"
+name = "meshtripwire on GitHub"

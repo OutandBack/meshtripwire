@@ -1,0 +1,23 @@
+/* Mermaid diagrams: full-width, centered, scroll on overflow */
+.mermaid svg {
+  max-width: 100% !important;
+}
+
+.mermaid {
+  overflow-x: auto;
+  text-align: center;
+}
+
+/* Wide tables scroll inside their own container instead of the page body */
+.md-typeset__table {
+  overflow-x: auto;
+}
+
+/* Brand: the dashboard's palette — night-pine primary, teal accent
+   (--panel #1D2B24 / --contact #5FB0A5 in dashboard/index.html) */
+:root {
+  --md-primary-fg-color: #24382E;        /* night pine */
+  --md-primary-fg-color--light: #35503F;
+  --md-primary-fg-color--dark: #141F1A;  /* dashboard ink */
+  --md-accent-fg-color: #5FB0A5;         /* dashboard teal */
+}
