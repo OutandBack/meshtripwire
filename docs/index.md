@@ -81,7 +81,7 @@ unit-tested against the documented protocol but has not touched hardware.
 | Dashboard + history search + night mode | shipped | live stack, screenshot-verified, mobile pass |
 | Meshtastic serial→LoRa backhaul | shipped | bridge unit-tested; serial path bench-tested |
 | LXMF/Reticulum backhaul | shipped | mock-tested; **live RNS validation pending** |
-| MeshCore backhaul | in progress | on a branch, awaiting hardware test |
+| MeshCore backhaul | shipped | mock-tested; **hardware validation pending** |
 
 ## Where to start
 

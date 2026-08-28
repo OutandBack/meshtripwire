@@ -131,9 +131,18 @@ traffic ~10–20× (see the bandwidth notes in `firmware/README.md`). Also keep
 `COOLDOWN_MS` high and `RSSI_MIN` tight — MAC randomization can still generate
 more sightings than the channel carries.
 
+**MeshCore instead of Meshtastic:** build the sensor sketches with
+`SERIAL_MESHCORE 1`; they then frame each line in MeshCore's companion serial
+protocol as a channel message (with a `NODE_ID:` prefix, since MeshCore channel
+messages carry no sender id) for a wired MeshCore companion node (e.g. a Heltec
+V3). At the base, run `python -m mqtt.meshcore_bridge --serial-port
+/dev/ttyUSB0` (needs `pip install meshcore`) against a companion radio on the
+same channel; it maps the prefixed lines to the same MQTT payloads. Sensor and
+base radios must share the channel key.
+
 **Reticulum instead of Meshtastic:** sensors reach an LXMF/Reticulum network
 through a small relay host (e.g. a Pi Zero W with an RNode) instead of a wired
-mesh node — `sensors/rns_field_relay.py` reads the unmodified sensor's serial
+mesh node; `sensors/rns_field_relay.py` reads the unmodified sensor's serial
 lines and sends each as an LXMF message. At the base, run
 `python -m mqtt.rns_bridge` (needs `pip install rns lxmf`); it prints its LXMF
 destination hash for the relays and republishes their lines as the same MQTT

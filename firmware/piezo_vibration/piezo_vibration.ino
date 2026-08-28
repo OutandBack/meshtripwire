@@ -24,9 +24,12 @@
 
 // ---- Config: edit these ----
 #define OUTPUT_SERIAL 0                 // 0 = WiFi/MQTT, 1 = Serial lines for LoRa backhaul
+#define SERIAL_MESHCORE 0               // with OUTPUT_SERIAL 1: 0 = plain text lines (Meshtastic
+                                        // Serial module), 1 = MeshCore companion-radio framing
 #define DEBUG_PRINT   1                 // 1 = print envelope/hits 1/s for calibration.
                                         // Ignored when OUTPUT_SERIAL=1: a wired Meshtastic
                                         // node would relay every debug line over LoRa.
+const uint8_t MESHCORE_CHANNEL = 0;     // channel index on the wired MeshCore companion node
 const int   PIEZO_PIN   = 3;            // ADC-capable GPIO
 const char* WIFI_SSID   = "your-ssid";
 const char* WIFI_PASS   = "your-pass";
@@ -55,11 +58,44 @@ const uint32_t COOLDOWN_MS     = 15000; // one event per episode (monitor adds p
   PubSubClient mqtt(net);
 #endif
 
+#if OUTPUT_SERIAL && SERIAL_MESHCORE
+// MeshCore companion serial protocol: '<' len_lo len_hi payload. Channel
+// messages carry no sender id, so each line is prefixed with "NODE_ID:".
+void meshcore_send_line(const char* line) {
+  uint8_t buf[96];
+  uint32_t ts = millis() / 1000;  // no RTC; monotonic keeps the dedup hash moving
+  int n = 0;
+  buf[n++] = 0x03;                // CMD_SEND_CHANNEL_TXT_MSG
+  buf[n++] = 0x00;                // txt_type: plain
+  buf[n++] = MESHCORE_CHANNEL;
+  buf[n++] = ts & 0xFF; buf[n++] = (ts >> 8) & 0xFF;
+  buf[n++] = (ts >> 16) & 0xFF; buf[n++] = (ts >> 24) & 0xFF;
+  n += snprintf((char*)buf + n, sizeof(buf) - n, "%s:%s", NODE_ID, line);
+  Serial.write((uint8_t)0x3C);
+  Serial.write((uint8_t)(n & 0xFF));
+  Serial.write((uint8_t)(n >> 8));
+  Serial.write(buf, n);
+}
+
+void meshcore_appstart() {
+  delay(1500);  // let the companion radio boot before the handshake
+  const uint8_t hello[] = {0x01, 0x03, ' ', ' ', ' ', ' ', ' ', ' ', 'm', 't', 'w'};  // CMD_APP_START
+  Serial.write((uint8_t)0x3C);
+  Serial.write((uint8_t)sizeof(hello));
+  Serial.write((uint8_t)0);
+  Serial.write(hello, sizeof(hello));
+}
+#endif
+
 void report(char kind, int value) {
 #if OUTPUT_SERIAL
-  Serial.print(kind);
-  Serial.print(',');
-  Serial.println(value);
+  char line[16];
+  snprintf(line, sizeof(line), "%c,%d", kind, value);
+  #if SERIAL_MESHCORE
+    meshcore_send_line(line);
+  #else
+    Serial.println(line);
+  #endif
 #else
   char payload[80];
   snprintf(payload, sizeof(payload),
@@ -72,6 +108,9 @@ void report(char kind, int value) {
 
 void setup() {
   Serial.begin(115200);
+#if OUTPUT_SERIAL && SERIAL_MESHCORE
+  meshcore_appstart();
+#endif
   analogReadResolution(12);
 #if !OUTPUT_SERIAL
   WiFi.mode(WIFI_STA);
@@ -98,6 +137,9 @@ int hits_in_window(uint32_t now) {
 }
 
 void loop() {
+#if OUTPUT_SERIAL && SERIAL_MESHCORE
+  while (Serial.available()) Serial.read();  // drain companion-radio responses
+#endif
 #if !OUTPUT_SERIAL
   if (!mqtt.connected() && millis() - lastReconnect > 5000) {
     lastReconnect = millis();

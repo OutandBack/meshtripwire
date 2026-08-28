@@ -47,7 +47,7 @@ def sighting_from_line(line, name):
 
     Lines: "AABBCC112233,-64" MAC sighting, "V,123" vehicle magnitude,
     "K,812" knock peak, "S,9" shake hit count. name tags the reporting sensor.
-    Shared by the mesh bridges (Meshtastic, LXMF/Reticulum).
+    Shared by the mesh bridges (Meshtastic, MeshCore, LXMF/Reticulum).
     """
     kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits')}
     if len(line) > 2 and line[1] == ',' and line[0] in kinds:

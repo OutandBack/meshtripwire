@@ -27,6 +27,23 @@ ESP32 sensor ──serial──▶ field Meshtastic node ──LoRa──▶ bas
    full JSON to the broker. The same bridge also ingests Detection Sensor
    module packets (contact sensors) and flags mesh-node presence.
 
+## MeshCore
+
+Build the sensor sketches with `SERIAL_MESHCORE 1`; each line is framed in
+MeshCore's companion serial protocol as a channel message, prefixed
+`NODE_ID:` (MeshCore channel messages carry no sender id), for a wired
+MeshCore companion node such as a Heltec V3. At the base:
+
+```bash
+pip install meshcore
+python -m mqtt.meshcore_bridge --serial-port /dev/ttyUSB0 --broker-port 1883
+```
+
+The bridge listens on a companion radio sharing the same channel and maps the
+prefixed lines to the standard MQTT payloads. Sensor and base radios must
+share the channel key; `MESHCORE_CHANNEL` in the sketch picks the channel
+index.
+
 ## LXMF / Reticulum
 
 Sensors reach a Reticulum network through a small relay host (a Pi Zero W with
@@ -56,10 +73,10 @@ Reticulum interfaces (RNode, TCP tunnels, ...) come from each host's own RNS
 config (`~/.reticulum`).
 
 !!! note "Validation status"
-    The LXMF bridge pair is unit-tested against the `lxmf` library's wire
-    encoding but has not yet been validated over a live RNS network. MeshCore
-    support (companion-radio protocol) is in progress on a branch, pending a
-    hardware test.
+    The MeshCore framing and the LXMF bridge pair are unit-tested against
+    their reference libraries' wire encodings but have not yet been validated
+    over live radio hardware. The Meshtastic path's serial side is
+    bench-tested.
 
 ## Off-grid alerts (RelayFabric)
 
