@@ -80,7 +80,7 @@ unit-tested against the documented protocol but has not touched hardware.
 | Notification delivery log | shipped | unit + smoke suites; live stack |
 | Dashboard + history search + night mode | shipped | live stack, screenshot-verified, mobile pass |
 | Meshtastic serial→LoRa backhaul | shipped | bridge unit-tested; serial path bench-tested |
-| LXMF/Reticulum backhaul | shipped | mock-tested; **live RNS validation pending** |
+| LXMF/Reticulum backhaul | shipped | **live-tested** over a real RNS network (LXMF delivery through the bridge to a dispatched alert); RNode radio-only path pending a second radio |
 | MeshCore backhaul | shipped | mock-tested; **hardware validation pending** |
 
 ## Where to start
