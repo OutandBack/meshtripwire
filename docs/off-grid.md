@@ -72,12 +72,6 @@ python -m sensors.rns_field_relay --serial-port /dev/ttyACM0 \
 Reticulum interfaces (RNode, TCP tunnels, ...) come from each host's own RNS
 config (`~/.reticulum`).
 
-!!! note "Validation status"
-    The MeshCore framing and the LXMF bridge pair are unit-tested against
-    their reference libraries' wire encodings but have not yet been validated
-    over live radio hardware. The Meshtastic path's serial side is
-    bench-tested.
-
 ## Off-grid alerts (RelayFabric)
 
 ntfy, webhook, Twilio, and SMTP all need the Internet, the opposite of the
