@@ -27,26 +27,6 @@ from urllib.parse import parse_qs, urlparse
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def query_events(conn, limit=300):
-    """Recent events, newest first, with meta decoded from JSON."""
-    try:
-        # ts, not id: LoRa-relayed events can arrive (and be inserted) out of order
-        rows = conn.execute(
-            "SELECT ts, node, type, sensor, event, value, meta FROM events "
-            "ORDER BY ts DESC LIMIT ?", (int(limit),)).fetchall()
-    except sqlite3.OperationalError:
-        return []  # monitor hasn't created the events table yet
-    events = []
-    for ts, node, type_, sensor, event, value, meta in rows:
-        try:
-            meta = json.loads(meta) if meta else {}
-        except ValueError:
-            meta = {}
-        events.append({'ts': ts, 'node': node, 'type': type_, 'sensor': sensor,
-                       'event': event, 'value': value, 'meta': meta})
-    return events
-
-
 def query_nodes(conn):
     """One row per node: last event timestamp and total event count."""
     try:
@@ -135,7 +115,7 @@ def make_handler(db_path):
                 try:
                     if url.path == '/api/events':
                         limit = parse_qs(url.query).get('limit', ['300'])[0]
-                        self._json(query_events(conn, limit))
+                        self._json(query_search(conn, limit=limit))
                     elif url.path == '/api/nodes':
                         self._json(query_nodes(conn))
                     elif url.path == '/api/notifications':

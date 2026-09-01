@@ -22,6 +22,7 @@ import time
 
 import paho.mqtt.client as mqtt
 
+from mqtt.meshcore_bridge import payload_from_text
 from mqtt.serial_bridge import sighting_from_line
 
 
@@ -38,12 +39,9 @@ def payload_from_lxmf(content, source_hash, sensor_map=None):
         return None
     if not text:
         return None
-    name, sep, line = text.partition(':')
-    if sep and name.strip() and line.strip():
-        prefixed = sighting_from_line(line.strip(),
-                                      (sensor_map or {}).get(name.strip(), name.strip()))
-        if prefixed:
-            return prefixed
+    prefixed = payload_from_text(text, sensor_map)
+    if prefixed:
+        return prefixed
     name = (sensor_map or {}).get(source_hash, source_hash[:8])
     return sighting_from_line(text, name)
 

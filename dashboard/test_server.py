@@ -1,8 +1,8 @@
 """Check the dashboard queries. Run: venv/bin/python -m dashboard.test_server"""
 import sqlite3
 
-from dashboard.server import (query_events, query_facets, query_nodes,
-                              query_notifications, query_search)
+from dashboard.server import (query_facets, query_nodes, query_notifications,
+                              query_search)
 
 conn = sqlite3.connect(':memory:')
 conn.execute("""CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,7 +18,7 @@ conn.executemany("INSERT INTO events (ts, node, type, sensor, event, value, meta
                  "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
 
 # Events: newest first, meta decoded, limit respected
-evs = query_events(conn, limit=2)
+evs = query_search(conn, limit=2)
 assert len(evs) == 2 and evs[0]['type'] == 'wireless_presence', evs
 assert evs[0]['meta']['mac'] == 'DE:AD:BE:EF:00:01'
 assert evs[1] == {'ts': '2026-08-27T10:00:30+00:00', 'node': 'fence-e',
@@ -66,7 +66,7 @@ assert ns == [{'ts': '2026-08-27T10:00:01+00:00', 'channel': 'twilio',
 
 # Database without an events table yet (monitor never ran): empty, no errors
 bare = sqlite3.connect(':memory:')
-assert query_events(bare) == [] and query_nodes(bare) == []
+assert query_search(bare) == [] and query_nodes(bare) == []
 assert query_notifications(bare) == []
 assert query_search(bare) == [] and query_facets(bare) == {'types': [], 'nodes': [], 'events': []}
 
@@ -74,6 +74,6 @@ assert query_search(bare) == [] and query_facets(bare) == {'types': [], 'nodes':
 empty = sqlite3.connect(':memory:')
 empty.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, ts TEXT, node TEXT, "
               "type TEXT, sensor TEXT, event TEXT, value REAL, lat REAL, lon REAL, meta TEXT)")
-assert query_events(empty) == [] and query_nodes(empty) == []
+assert query_search(empty) == [] and query_nodes(empty) == []
 
 print('dashboard test OK')

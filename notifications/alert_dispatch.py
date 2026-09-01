@@ -85,11 +85,8 @@ def send_alert(app_config, mac, node, message=None, on_result=None):
                 response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
                 logger.info(f"Sent alert to ntfy.sh topic: {ntfy_topic}")
                 _report(on_result, 'ntfy', ntfy_topic, True, None, message)
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to send alert to ntfy.sh ({url}): {e}")
-                _report(on_result, 'ntfy', ntfy_topic, False, str(e), message)
             except Exception as e:
-                logger.exception(f"Unexpected error sending to ntfy.sh: {e}")
+                logger.error(f"Failed to send alert to ntfy.sh ({url}): {e}")
                 _report(on_result, 'ntfy', ntfy_topic, False, str(e), message)
         else:
             logger.warning("Ntfy enabled but NtfyTopic not set in config.")
@@ -104,11 +101,8 @@ def send_alert(app_config, mac, node, message=None, on_result=None):
                 response.raise_for_status()
                 logger.info(f"Sent alert to webhook: {webhook_url}")
                 _report(on_result, 'webhook', webhook_url, True, None, message)
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to send alert to webhook ({webhook_url}): {e}")
-                _report(on_result, 'webhook', webhook_url, False, str(e), message)
             except Exception as e:
-                logger.exception(f"Unexpected error sending to webhook: {e}")
+                logger.error(f"Failed to send alert to webhook ({webhook_url}): {e}")
                 _report(on_result, 'webhook', webhook_url, False, str(e), message)
         else:
             logger.warning("Webhook enabled but WebhookURL not set in config.")
@@ -133,14 +127,11 @@ def send_alert(app_config, mac, node, message=None, on_result=None):
                 response.raise_for_status()
                 logger.info(f"Sent alert via Twilio SMS to {to_phone}")
                 _report(on_result, 'twilio', to_phone, True, None, message)
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to send alert via Twilio SMS: {e}")
-                # Log response body if available and indicates an error
-                if e.response is not None:
-                    logger.error(f"Twilio Response: {e.response.text}")
-                _report(on_result, 'twilio', to_phone, False, str(e), message)
             except Exception as e:
-                logger.exception(f"Unexpected error sending Twilio SMS: {e}")
+                logger.error(f"Failed to send alert via Twilio SMS: {e}")
+                # Log the API's response body when the error carries one
+                if getattr(e, 'response', None) is not None:
+                    logger.error(f"Twilio Response: {e.response.text}")
                 _report(on_result, 'twilio', to_phone, False, str(e), message)
         else:
             logger.warning("Twilio enabled but one or more required settings (SID, Token, From, To) are missing in config.")

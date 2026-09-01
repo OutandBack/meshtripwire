@@ -15,7 +15,6 @@ flowchart TB
     ROUTE -->|sensor event| EV["handle_sensor_event<br/>vehicle · vibration · contact"]
     ROUTE -->|MAC sighting| MAC["MAC pipeline<br/>RSSI floor → EMA → whitelist → dwell"]
     EV --> LOG[("events table")]
-    MAC --> DET[("detections table")]
     MAC --> LOG
     EV --> COR["correlation buffer"]
     MAC -->|alert-worthy| COR
@@ -72,7 +71,8 @@ randomize MACs and radio is noisy:
 
 `logs/detections.db` (SQLite) holds three tables:
 
-- **`detections`**: the original MAC log: `mac, node, rssi, timestamp, lat, lon`
+- **`detections`**: the pre-v0.2 MAC log, write-retired — kept and pruned for
+  old installs, backfilled into `events`, no longer written or read
 - **`events`**: every canonical event, MAC and non-MAC alike:
   `ts, node, type, sensor, event, value, lat, lon, meta(JSON)`. Pre-v0.2
   detections are backfilled in once, so history search reaches all the way back.

@@ -245,20 +245,6 @@ def exponential_moving_average(mac, value):
     return smoothed_value
 
 
-def log_to_sqlite(mac, node, smoothed_rssi, timestamp_iso, lat, lon):
-    """Logs detection data to the SQLite database using the global cursor."""
-    # Note: Parameter name changed to timestamp_iso for clarity
-    if db_cursor and db_conn:
-        try:
-            db_cursor.execute("""INSERT INTO detections (mac, node, rssi, timestamp, lat, lon) VALUES (?, ?, ?, ?, ?, ?)""",
-                              (mac, node, smoothed_rssi, timestamp_iso, lat, lon))
-            # REMOVED: db_conn.commit() - Commit will happen periodically
-        except sqlite3.Error as e:
-            logging.error(f"Failed to execute insert for MAC {mac} to SQLite: {e}")
-    else:
-        logging.warning(f"Database connection not available, skipping log for MAC {mac}.")
-
-
 def correlation_note(ev_type, node, event_name):
     """Feed one alertable event into the correlation buffer; escalate when
     distinct sensor types cluster inside the window.
@@ -389,8 +375,8 @@ def process_detection(detection_data):
         lat = node_info.get("lat")
         lon = node_info.get("lon")
 
-    # Log to database
-    log_to_sqlite(mac, node_id, smoothed_rssi, timestamp_iso, lat, lon)
+    # Log to database (the legacy detections table is write-retired: events
+    # carries every sighting, and nothing reads detections anymore)
     log_event(canonical("wireless_presence", node_id, "detected",
                         meta={"mac": mac, "rssi": smoothed_rssi, "status": status,
                               "lat": lat, "lon": lon}))
@@ -581,19 +567,13 @@ def maybe_commit():
 def on_message(client, userdata, msg):
     """Callback for when a message is received from MQTT."""
     global message_counter # Access global counter
-    cleanup_interval = 100 # Run cleanup & commit every N messages
+    cleanup_interval = 100 # Run cleanup every N messages
 
-    # --- Periodic Cleanup & Commit ---
+    # --- Periodic Cleanup (commits ride the 5s maybe_commit clock) ---
     message_counter += 1
     if message_counter >= cleanup_interval:
         cleanup_ema_states()
         prune_old_detections()
-        if db_conn:
-            try:
-                db_conn.commit()
-                logging.debug(f"Committed {message_counter} detection(s) to database.")
-            except sqlite3.Error as e:
-                logging.error(f"Failed to commit batch to SQLite: {e}")
         message_counter = 0 # Reset counter
 
     # --- Route control/heartbeat topics away from the detection pipeline ---
