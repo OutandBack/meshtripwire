@@ -1,5 +1,7 @@
 # Dashboard
 
+![The dashboard in night mode](dashboard.png)
+
 A built-in, read-only status page at port 8080. Stdlib Python + one
 self-contained HTML page per view: no framework, no CDN, no external assets,
 because the whole point is working where there is no Internet.
