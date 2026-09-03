@@ -734,6 +734,17 @@ def main():
     client.on_connect = on_connect
     client.on_message = on_message
 
+    # Commit timer: maybe_commit otherwise runs only on message arrival, so the
+    # last message before radio silence would sit uncommitted (and invisible to
+    # the dashboard) until the next one. A 5s clock closes that gap.
+    stop_committer = threading.Event()
+
+    def committer():
+        while not stop_committer.wait(5):
+            maybe_commit()
+
+    threading.Thread(target=committer, daemon=True).start()
+
     # Sensor watchdog runs on its own timer — silence produces no messages, so it
     # can't be driven by the message loop. Only started if sensors are expected.
     stop_watchdog = threading.Event()

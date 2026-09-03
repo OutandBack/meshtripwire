@@ -87,7 +87,9 @@
   }
   .axis .marks { display: flex; justify-content: space-between; padding: 0 2px; }
 
-  .cols { display: grid; grid-template-columns: 280px 1fr; gap: 20px; }
+  /* left column takes 40% on wide screens so notification messages
+     get the room the event feed doesn't need */
+  .cols { display: grid; grid-template-columns: minmax(280px, 40%) 1fr; gap: 20px; }
   @media (max-width: 720px) {
     .cols { grid-template-columns: 1fr; }
     /* on a phone the event feed is the point — it goes first */
