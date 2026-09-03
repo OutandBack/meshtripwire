@@ -25,6 +25,7 @@ sensor_offline = set() # Nodes currently flagged offline (alert once, until they
 event_last_alerts = {} # Stores {(node, type, event): last_alert_unix_ts} for sensor-event cooldowns
 correlation_events = [] # Recent alertable events as (unix_ts, type, node, event) for fusion
 correlation_last_alert = 0.0 # last combined-alert time, for CorrelationCooldownSeconds
+lightning_last_ts = 0.0 # last AS3935 strike, for thunder-labeling vibration alerts
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
@@ -506,19 +507,35 @@ def handle_sensor_event(payload_bytes):
         payload = json.loads(payload_bytes.decode())
     except (ValueError, UnicodeDecodeError):
         return False
+    global lightning_last_ts
     ev = normalize(payload)
     if ev is None or ev["type"] == "wireless_presence":
         return False  # MAC sightings belong to the detection pipeline
 
     reg = TYPE_REGISTRY[(ev["type"], ev["event"])]
     node, val = ev["node"], ev["value"]
+
+    # Thunder labeling: a strike opens a window in which vibration events are
+    # still logged AND still alert — but labeled, and kept out of correlation,
+    # so a storm can't mint HIGH CONFIDENCE alerts on its own. Label, not drop:
+    # a storm is decent cover for a real intruder.
+    thunder = False
+    if ev["type"] == "weather":
+        lightning_last_ts = time.time()
+    elif ev["type"] == "vibration":
+        window = config.getint('Filtering', 'LightningLabelSeconds', fallback=120)
+        thunder = window > 0 and time.time() - lightning_last_ts < window
+        if thunder:
+            ev["meta"]["thunder"] = True
+
     note_sensor_seen(node)
     log_event(ev)
     logging.info(f"Sensor event: {ev['type']}/{ev['event']} Node={node} value={val}")
 
     if not reg["alertable"] or not is_armed():
         return True
-    correlation_note(ev["type"], node, ev["event"])
+    if not thunder:
+        correlation_note(ev["type"], node, ev["event"])
     cooldown = config.getint('Filtering', reg["cooldown_key"], fallback=reg["cooldown_default"])
     now_ts = time.time()
     key = (node, ev["type"], ev["event"])
@@ -527,6 +544,8 @@ def handle_sensor_event(payload_bytes):
         return True
     event_last_alerts[key] = now_ts
     message = reg["template"].format(node=node, val=val)
+    if thunder:
+        message += " (coincides with lightning; possible thunder)"
     logging.warning(f"{message} Sending alert.")
     try:
         send_alert(config, ev["type"], node, message=message, on_result=record_notification)

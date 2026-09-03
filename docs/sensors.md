@@ -35,6 +35,15 @@ fence run, classified on-device:
 - **wind**: sustained low-amplitude noise stays below the spike threshold and
   produces nothing; the threshold *is* the wind filter
 
+## Lightning sensor (AS3935)
+
+`firmware/as3935_lightning/`: an $8 franklin lightning sensor that hears
+strikes up to ~40 km away, locally, with no weather API. Its role is
+false-positive control: thunder passes the piezo's wind filter, so after a
+strike the monitor labels vibration alerts within `LightningLabelSeconds` as
+possible thunder. They still alert (label, not drop — a storm is cover for a
+real intruder) but carry the tag and stay out of correlation.
+
 ## Contact sensors (no custom firmware)
 
 Anything producing a GPIO high/low (reed switches, PIR motion sensors, IR

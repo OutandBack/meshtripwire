@@ -17,6 +17,7 @@ like).
 | **Vehicle sensor node** | GY-271 (QMC5883L) magnetometer + any ESP32 above | $2–3 | I2C module; detects the magnetic signature of vehicles within ~2–5 m, no phone required. |
 | **Vibration sensor node** | Piezo disc (27 mm) + 1 MΩ resistor + any ESP32 above | <$1 | Glued to a door/gate/fence; classifies knock vs sustained shaking on-device, ignores wind. |
 | **Contact sensors** | Reed switch, PIR (AM312), IR beam-break, float switch | $1–8 | Wire straight to a Meshtastic node's GPIO, no custom firmware. |
+| **Lightning sensor node** | AS3935 module (CJMCU-3935) + any ESP32 above | $8–15 | Hears strikes to ~40 km; thunder-labels piezo alerts so storms don't false-alarm. |
 | **Off-grid / LoRa node** | [Heltec WiFi LoRa 32 V3](https://amzn.to/4gQIko0) | $12–18 | Only for sensors/alerts beyond WiFi range. Runs Meshtastic (or MeshCore/Reticulum stacks). |
 | | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
 | **Reticulum relay host** | Pi Zero W + RNode | $15 + RNode | Runs `sensors/rns_field_relay.py` for the LXMF backhaul path. |

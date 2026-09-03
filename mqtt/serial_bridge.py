@@ -49,7 +49,8 @@ def sighting_from_line(line, name):
     "K,812" knock peak, "S,9" shake hit count. name tags the reporting sensor.
     Shared by the mesh bridges (Meshtastic, MeshCore, LXMF/Reticulum).
     """
-    kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits')}
+    kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits'),
+             'L': ('lightning', 'km')}
     if len(line) > 2 and line[1] == ',' and line[0] in kinds:
         event, field = kinds[line[0]]
         try:

@@ -29,6 +29,11 @@ TYPE_REGISTRY = {
         "cooldown_key": "AlertCooldownSeconds", "cooldown_default": 300,
         "template": "ALERT: Unknown MAC detected by node {node}.",
         "alertable": True},
+    # Informational: logged so vibration alerts can be thunder-labeled; never alerts
+    ("weather", "lightning"): {
+        "cooldown_key": "AlertCooldownSeconds", "cooldown_default": 300,
+        "template": "Lightning detected by node {node} ({val} km).",
+        "alertable": False},
 }
 
 # Legacy event-JSON name -> (type, event, sensor, value field)
@@ -36,6 +41,7 @@ _LEGACY_EVENTS = {
     "vehicle": ("vehicle", "detected", "qmc5883l", "mag"),
     "knock": ("vibration", "knock", "piezo", "peak"),
     "shake": ("vibration", "shake", "piezo", "hits"),
+    "lightning": ("weather", "lightning", "as3935", "km"),
 }
 
 _CANONICAL_KEYS = {"v", "type", "node", "sensor", "event", "value"}

@@ -127,6 +127,29 @@ The monitor alerts on both types with independent per-node cooldowns
 defaults lower because it's high-confidence). Backhaul, arming, SQLite logging,
 and the sensor watchdog behave exactly as for the vehicle node.
 
+## Lightning node (AS3935)
+
+`firmware/as3935_lightning/` pairs any ESP32 with an AS3935 franklin lightning
+sensor module (~$8, e.g. CJMCU-3935). It detects the RF signature of strikes up
+to ~40 km out with an estimated distance, and reports each as
+`{"event":"lightning","from":node,"km":N}` (or a compact `L,<km>` line over the
+LoRa relay).
+
+Its job is false-positive control: thunder shakes fences and doors hard enough
+to pass the piezo's wind filter. After a lightning event, the monitor labels
+vibration alerts inside `[Filtering] LightningLabelSeconds` (default 120) as
+possible thunder — they still alert (a storm is decent cover for a real
+intruder, so nothing is dropped) but carry the label and stay out of
+correlation. Locally, with no weather API and no Internet.
+
+**Wiring** (I2C): VCC→3V3, GND→GND, SDA→GPIO8, SCL→GPIO9, IRQ→`IRQ_PIN`
+(default GPIO4). Keep it away from switching supplies and LED drivers.
+
+**Calibration**: flash with `DEBUG_PRINT` on during a quiet day. Frequent
+"noise"/"disturber" prints mean raise `NOISE_FLOOR`/`WATCHDOG` or move the
+module. `TUNING_CAP` trims the antenna (0–15, module-specific — many breakouts
+ship with their value noted). `OUTDOOR` switches AFE gain.
+
 ## Digital sensors via stock Meshtastic (Detection Sensor module)
 
 Reed switches, PIR motion sensors, IR beam-break receivers, float switches —

@@ -137,6 +137,31 @@ with mock.patch.object(monitor, 'send_alert') as sa:
 monitor.manual_armed = None
 monitor.event_last_alerts.clear()
 
+# Lightning + thunder labeling: a strike event logs but never alerts, and
+# vibration inside the window still alerts, labeled, without feeding correlation
+monitor.config.set('Filtering', 'LightningLabelSeconds', '120')
+monitor.event_last_alerts.clear()
+monitor.correlation_events.clear()
+monitor.lightning_last_ts = 0.0
+with mock.patch.object(monitor, 'send_alert') as sa, \
+     mock.patch.object(monitor, 'log_event') as le:
+    assert monitor.handle_sensor_event(b'{"event":"lightning","from":"gate","km":12}') is True
+    assert sa.call_count == 0                      # informational, no alert
+    assert monitor.lightning_last_ts > 0
+    monitor.handle_sensor_event(b'{"event":"knock","from":"fence-e","peak":600}')
+    assert sa.call_count == 1                      # still alerts (label, don't drop)
+    assert 'lightning' in sa.call_args.kwargs['message']
+    assert le.call_args[0][0]['meta'].get('thunder') is True
+    assert monitor.correlation_events == []        # thunder-labeled: no fusion fuel
+    monitor.lightning_last_ts = time.time() - 121  # window expired
+    monitor.event_last_alerts.clear()
+    monitor.handle_sensor_event(b'{"event":"knock","from":"fence-e","peak":600}')
+    assert 'lightning' not in sa.call_args.kwargs['message']
+    assert len(monitor.correlation_events) == 1
+monitor.correlation_events.clear()
+monitor.event_last_alerts.clear()
+monitor.lightning_last_ts = 0.0
+
 # Correlation: distinct sensor types inside the window escalate once
 monitor.config.set('Correlation', 'CorrelationWindowSeconds', '120')
 monitor.config.set('Correlation', 'CorrelationMinTypes', '2')

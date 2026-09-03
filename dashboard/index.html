@@ -236,9 +236,11 @@ function detail(e) {
     const m = e.meta || {};
     return `<b>${esc(m.mac || '?')}</b> ${esc(m.rssi ?? '')} dBm ${m.status === 'whitelisted' ? '(known)' : ''}`;
   }
-  if (e.event === 'shake') return `<b>${esc(e.value ?? '?')}</b> hits`;
-  if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>`;
+  const thunder = (e.meta || {}).thunder ? ' (thunder?)' : '';
+  if (e.event === 'shake') return `<b>${esc(e.value ?? '?')}</b> hits${thunder}`;
+  if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>${thunder}`;
   if (e.type === 'vehicle') return `magnitude <b>${esc(e.value ?? '?')}</b>`;
+  if (e.type === 'weather') return `<b>${esc(e.value ?? '?')}</b> km`;
   return esc(e.event);
 }
 

@@ -34,6 +34,7 @@ defaults; everything below is the full reference.
 | `KnockAlertCooldownSeconds` | `300` | per-node knock re-alert suppression |
 | `ShakeAlertCooldownSeconds` | `120` | per-node shake re-alert suppression (lower: high-confidence) |
 | `ContactAlertCooldownSeconds` | `60` | per-node contact re-alert suppression; also absorbs Detection Sensor state re-broadcasts |
+| `LightningLabelSeconds` | `120` | after an AS3935 strike event, vibration alerts in this window are labeled as possible thunder and kept out of correlation (0 disables) |
 
 ## `[Sensors]`
 
