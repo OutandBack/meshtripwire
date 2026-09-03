@@ -74,6 +74,7 @@ unit-tested against the documented protocol but has not touched hardware.
 | Vibration sensor (piezo knock/shake) | shipped | compile-verified; awaiting bench calibration |
 | Contact sensors via Meshtastic Detection Sensor module | shipped | mock-tested against the documented module behavior |
 | Lightning sensor (AS3935) + thunder labeling | shipped | labeling unit-tested; firmware compile-verified, awaiting hardware |
+| Drone Remote ID detection (sniffer compile flag) | shipped | pipeline unit-tested; frame parsing compile-verified, awaiting a live Remote ID broadcast |
 | Canonical event schema + events table | shipped | unit + smoke suites |
 | Cross-sensor correlation (HIGH CONFIDENCE alerts) | shipped | unit + smoke suites |
 | Alert channels: ntfy, webhook, Twilio, MQTT | shipped | live (ntfy, MQTT); mock-tested (webhook, Twilio) |

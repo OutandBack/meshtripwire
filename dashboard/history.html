@@ -9,7 +9,8 @@
     --ink: #141F1A; --panel: #1D2B24; --line: #2C3E34;
     --text: #C7D4CA; --dim: #7A8F81;
     --vehicle: #E0A458; --vibration: #E4572E; --contact: #5FB0A5;
-    --wireless: #8FA5C0; --alarm: #FF5C4D;
+    --wireless: #8FA5C0;
+    --drone: #C77DDB;    /* drones get their own hue: airborne, notable */ --alarm: #FF5C4D;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   }
@@ -19,6 +20,7 @@
     --ink: #0C0202; --panel: #170504; --line: #38100C;
     --text: #D9564A; --dim: #7E2C25;
     --vehicle: #FF7A5C; --vibration: #F04432; --contact: #B03A30; --wireless: #6E241E;
+    --drone: #E86A54;
     --alarm: #FF9A85;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -77,6 +79,7 @@
   .badge.vibration { color: var(--vibration); }
   .badge.contact { color: var(--contact); }
   .badge.wireless_presence { color: var(--wireless); }
+  .badge.drone { color: var(--drone); }
   .hrow .detail { color: var(--dim); }
   .hrow .detail b { color: var(--text); font-weight: 600; }
   summary { display: none; }
@@ -177,6 +180,7 @@ function detail(e) {
   if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>${thunder}`;
   if (e.type === 'vehicle') return `magnitude <b>${esc(e.value ?? '?')}</b>`;
   if (e.type === 'weather') return `<b>${esc(e.value ?? '?')}</b> km`;
+  if (e.type === 'drone') return `<b>${esc(e.value ?? '?')}</b> dBm`;
   return esc(e.event);
 }
 

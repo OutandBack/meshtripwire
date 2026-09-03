@@ -33,7 +33,12 @@
 #define OUTPUT_SERIAL 0                 // 0 = publish over WiFi/MQTT, 1 = print JSON to Serial for LoRa backhaul
 #define SERIAL_MESHCORE 0               // with OUTPUT_SERIAL 1: 0 = plain text lines (Meshtastic
                                         // Serial module), 1 = MeshCore companion-radio framing
+#define DETECT_DRONEID 0                // 1 = also report drone Remote ID broadcasts (ASTM F3411 /
+                                        // Open Drone ID): WiFi beacon vendor IE in SCAN_WIFI mode,
+                                        // BLE service data 0xFFFA in SCAN_BLE mode
 const uint8_t MESHCORE_CHANNEL = 0;     // channel index on the wired MeshCore companion node
+const uint32_t DRONE_COOLDOWN_MS = 15000; // min gap between drone reports
+                                          // ponytail: one global cooldown; per-drone if swarms matter
 const char* WIFI_SSID   = "your-ssid";
 const char* WIFI_PASS   = "your-pass";
 const char* MQTT_HOST   = "192.168.1.10";
@@ -124,6 +129,31 @@ bool is_whitelisted(const char* mac) {
   return false;
 }
 
+#if DETECT_DRONEID
+uint32_t lastDrone = 0;
+
+// A drone's Remote ID is a mandated public broadcast; RSSI stands in for
+// proximity. Serial extraction from the ODID message pack is the upgrade path.
+void report_drone(int rssi) {
+  if (millis() - lastDrone < DRONE_COOLDOWN_MS) return;
+  lastDrone = millis();
+#if OUTPUT_SERIAL
+  char line[12];
+  snprintf(line, sizeof(line), "D,%d", rssi);
+  #if SERIAL_MESHCORE
+    meshcore_send_line(line);
+  #else
+    Serial.println(line);
+  #endif
+#else
+  char payload[80];
+  snprintf(payload, sizeof(payload),
+           "{\"event\":\"drone\",\"from\":\"%s\",\"rssi\":%d}", NODE_ID, rssi);
+  if (mqtt.connected()) mqtt.publish(MQTT_TOPIC, payload);
+#endif
+}
+#endif
+
 // mac must be an uppercase "AA:BB:CC:DD:EE:FF" string.
 void report(const char* mac, int rssi) {
   if (rssi < RSSI_MIN) return;
@@ -159,6 +189,23 @@ void sniffer_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
   snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
            m[0], m[1], m[2], m[3], m[4], m[5]);
   report(mac, p->rx_ctrl.rssi);
+
+#if DETECT_DRONEID
+  // Open Drone ID over WiFi rides beacon frames as a vendor-specific IE with
+  // the ASD-STAN OUI FA:0B:BC. Walk the beacon's IEs (header 24 + fixed 12).
+  if (type == WIFI_PKT_MGMT && p->payload[0] == 0x80 && p->rx_ctrl.sig_len > 38) {
+    const uint8_t* ie = p->payload + 36;
+    const uint8_t* end = p->payload + p->rx_ctrl.sig_len - 4;  // minus FCS
+    while (ie + 2 <= end && ie + 2 + ie[1] <= end) {
+      if (ie[0] == 221 && ie[1] >= 4 &&
+          ie[2] == 0xFA && ie[3] == 0x0B && ie[4] == 0xBC) {
+        report_drone(p->rx_ctrl.rssi);
+        break;
+      }
+      ie += 2 + ie[1];
+    }
+  }
+#endif
 }
 
 void start_promiscuous() {
@@ -175,6 +222,13 @@ class ScanCB : public BLEAdvertisedDeviceCallbacks {
     String mac = dev.getAddress().toString().c_str();
     mac.toUpperCase();
     report(mac.c_str(), dev.getRSSI());
+#if DETECT_DRONEID
+    // Open Drone ID over BLE: service data on the ASTM 16-bit UUID 0xFFFA
+    if (dev.haveServiceData() &&
+        dev.getServiceDataUUID().equals(BLEUUID((uint16_t)0xFFFA))) {
+      report_drone(dev.getRSSI());
+    }
+#endif
   }
 };
 #endif

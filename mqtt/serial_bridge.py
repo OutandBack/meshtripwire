@@ -50,7 +50,7 @@ def sighting_from_line(line, name):
     Shared by the mesh bridges (Meshtastic, MeshCore, LXMF/Reticulum).
     """
     kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits'),
-             'L': ('lightning', 'km')}
+             'L': ('lightning', 'km'), 'D': ('drone', 'rssi')}
     if len(line) > 2 and line[1] == ',' and line[0] in kinds:
         event, field = kinds[line[0]]
         try:

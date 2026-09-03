@@ -27,6 +27,18 @@ advertising over BLE. BLE mode coexists cleanly with the WiFi/MQTT uplink; WiFi
 mode has to time-slice sniffing against the uplink, so serial→LoRa backhaul is
 smoother there.
 
+## Drone Remote ID detection (optional)
+
+Set `DETECT_DRONEID 1` in the sniffer and it also reports **drone Remote ID
+broadcasts** — the public identification signal (ASTM F3411 / Open Drone ID)
+that most drones are required to transmit. WiFi mode catches the beacon-frame
+vendor IE (ASD-STAN OUI `FA:0B:BC`); BLE mode catches service data on the ASTM
+UUID `0xFFFA`. Events publish as `{"event":"drone","from":node,"rssi":N}` (or
+a compact `D,<rssi>` line over LoRa) and alert with
+`[Filtering] DroneAlertCooldownSeconds` (default 300). RSSI stands in for
+proximity; extracting the drone's serial from the ODID message pack is the
+upgrade path. Passive reception only — nothing is transmitted at the drone.
+
 ## Backhaul modes
 
 - **WiFi → MQTT** (default, `OUTPUT_SERIAL 0`): sensor must be in WiFi range of

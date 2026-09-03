@@ -35,6 +35,14 @@ fence run, classified on-device:
 - **wind**: sustained low-amplitude noise stays below the spike threshold and
   produces nothing; the threshold *is* the wind filter
 
+## Drone detection (Remote ID, firmware-only)
+
+Enable `DETECT_DRONEID` in the ESP32 sniffer and it also hears **drone Remote
+ID broadcasts** (ASTM F3411 / Open Drone ID) — the public identification
+signal most drones must transmit — over the same WiFi/BLE radio it already
+sniffs. Zero extra hardware: counter-UAS early warning as a compile flag.
+Alerts are rate-limited by `DroneAlertCooldownSeconds`.
+
 ## Lightning sensor (AS3935)
 
 `firmware/as3935_lightning/`: an $8 franklin lightning sensor that hears

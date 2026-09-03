@@ -18,6 +18,10 @@ assert (ev["type"], ev["event"], ev["value"]) == ("vibration", "shake", 9)
 
 ev = normalize({"event": "lightning", "from": "gate", "km": 12})
 assert (ev["type"], ev["event"], ev["sensor"], ev["value"]) == ("weather", "lightning", "as3935", 12)
+ev = normalize({"event": "drone", "from": "gate", "rssi": -58})
+assert (ev["type"], ev["event"], ev["sensor"], ev["value"]) == ("drone", "detected", "remoteid", -58)
+assert TYPE_REGISTRY[("drone", "detected")]["alertable"] is True
+assert TYPE_REGISTRY[("drone", "detected")]["cooldown_key"] == "DroneAlertCooldownSeconds"
 
 # Not events: MAC sightings (handled by the MAC pipeline), junk, unknown types
 assert normalize({"mac": "AA:BB", "from": "n", "rssi": -60}) is None

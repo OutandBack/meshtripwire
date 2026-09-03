@@ -36,6 +36,9 @@ assert json.loads(out) == {'event': 'shake', 'from': 'fence-e', 'hits': 9}, out
 out = payload_for({'decoded': {'text': 'L,12'}, 'fromId': '!aabb'},
                   NODES, sensor_map={'!aabb': 'gate'})
 assert json.loads(out) == {'event': 'lightning', 'from': 'gate', 'km': 12}, out
+out = payload_for({'decoded': {'text': 'D,-58'}, 'fromId': '!aabb'},
+                  NODES, sensor_map={'!aabb': 'gate'})
+assert json.loads(out) == {'event': 'drone', 'from': 'gate', 'rssi': -58}, out
 # Malformed value is not an event (falls through; no rssi -> skip)
 assert payload_for({'decoded': {'text': 'V,notint'}}, NODES) is None
 assert payload_for({'decoded': {'text': 'K,'}, 'fromId': '!aabb'}, NODES) is None

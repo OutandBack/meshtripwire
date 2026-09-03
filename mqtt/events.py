@@ -29,6 +29,10 @@ TYPE_REGISTRY = {
         "cooldown_key": "AlertCooldownSeconds", "cooldown_default": 300,
         "template": "ALERT: Unknown MAC detected by node {node}.",
         "alertable": True},
+    ("drone", "detected"): {
+        "cooldown_key": "DroneAlertCooldownSeconds", "cooldown_default": 300,
+        "template": "ALERT: Drone Remote ID broadcast near node {node} ({val} dBm).",
+        "alertable": True},
     # Informational: logged so vibration alerts can be thunder-labeled; never alerts
     ("weather", "lightning"): {
         "cooldown_key": "AlertCooldownSeconds", "cooldown_default": 300,
@@ -42,6 +46,7 @@ _LEGACY_EVENTS = {
     "knock": ("vibration", "knock", "piezo", "peak"),
     "shake": ("vibration", "shake", "piezo", "hits"),
     "lightning": ("weather", "lightning", "as3935", "km"),
+    "drone": ("drone", "detected", "remoteid", "rssi"),
 }
 
 _CANONICAL_KEYS = {"v", "type", "node", "sensor", "event", "value"}
