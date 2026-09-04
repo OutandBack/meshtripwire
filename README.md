@@ -59,7 +59,9 @@ Sensors scan for nearby MACs and publish sightings to the base station's MQTT br
 
 A built-in dashboard (`dashboard/server.py`, port 8080) shows a 24h per-node activity strip chart — correlated events line up vertically — plus node health, a notification delivery log, and a live event feed with an unknown-and-strong-signals filter.
 
-![meshtripwire dashboard in night mode: an intrusion sequence tracked from driveway to front door, HIGH CONFIDENCE correlation in the notification log, and thunder-labeled vibration events](docs/dashboard.png) `/history` searches all past activity by free text (node/MAC/event), type, node, event, and date/time range; pre-v0.2 detections are backfilled into the events table on first start so history reaches all the way back. Stdlib only, read-only, works fully offline.
+![meshtripwire dashboard in night mode: an intrusion sequence tracked from driveway to front door, HIGH CONFIDENCE correlation in the notification log, and thunder-labeled vibration events](docs/dashboard.png)
+
+`/history` searches all past activity by free text (node/MAC/event), type, node, event, and date/time range; pre-v0.2 detections are backfilled into the events table on first start so history reaches all the way back. Stdlib only, read-only, works fully offline.
 
 ### Where MACs come from
 
@@ -294,3 +296,7 @@ bash setup/sync_logs.sh gdrive:meshtripwire    # or from cron, e.g. every 30 min
 ```bash
 venv/bin/python test_smoke.py
 ```
+
+## License
+
+Apache-2.0 · Copyright 2026 Jascha Wanger / Tarnover, LLC · Sponsored by [Tarnover](https://tarnover.com)
