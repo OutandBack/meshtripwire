@@ -12,7 +12,7 @@ flowchart TB
     IN["MQTT message"] --> ROUTE{route}
     ROUTE -->|control topic| ARM["arm / disarm / auto<br/>(secret-gated)"]
     ROUTE -->|heartbeat topic| WD["sensor watchdog"]
-    ROUTE -->|sensor event| EV["handle_sensor_event<br/>vehicle · vibration · contact"]
+    ROUTE -->|sensor event| EV["handle_sensor_event<br/>vehicle · vibration · contact<br/>drone · lightning"]
     ROUTE -->|MAC sighting| MAC["MAC pipeline<br/>RSSI floor → EMA → whitelist → dwell"]
     EV --> LOG[("events table")]
     MAC --> LOG
@@ -33,7 +33,7 @@ sensors never need reflashing when the backend evolves:
 
 ```python
 {
-  "type":   "vibration",        # vehicle | vibration | contact | wireless_presence
+  "type":   "vibration",        # vehicle | vibration | contact | drone | weather | wireless_presence
   "node":   "fence-e",
   "sensor": "piezo",
   "event":  "shake",            # detected | knock | shake | trigger | ...
@@ -50,7 +50,7 @@ Accepted wire formats, all handled by `mqtt/events.py`:
 | `{"v":1,"type":...,"node":...}` | bridges, future sensors | as-is; unknown keys → `meta` |
 | `{"event":"knock","from":...,"peak":N}` | sensor firmware over WiFi/MQTT | `vibration/knock` etc. |
 | `{"mac","from","rssi"}` | all MAC sources | `wireless_presence`, **after** the MAC pipeline |
-| Compact lines `V,123` `K,812` `S,9` `AABBCC112233,-64` | LoRa relay | expanded by the bridges |
+| Compact lines `V,123` `K,812` `S,9` `L,12` `D,-58` `AABBCC112233,-64` | LoRa relay | expanded by the bridges |
 | Detection Sensor mesh packets | stock Meshtastic | `contact/trigger` |
 
 The type registry (`TYPE_REGISTRY`) maps each `(type, event)` to its alert
@@ -71,7 +71,7 @@ randomize MACs and radio is noisy:
 
 `logs/detections.db` (SQLite) holds three tables:
 
-- **`detections`**: the pre-v0.2 MAC log, write-retired — kept and pruned for
+- **`detections`**: the pre-v0.2 MAC log, write-retired: kept and pruned for
   old installs, backfilled into `events`, no longer written or read
 - **`events`**: every canonical event, MAC and non-MAC alike:
   `ts, node, type, sensor, event, value, lat, lon, meta(JSON)`. Pre-v0.2

@@ -77,11 +77,15 @@ when there is no Internet at all.
 | Impact/knock | piezo knock event | `KnockAlertCooldownSeconds` (per node) |
 | Sustained shaking | piezo shake event | `ShakeAlertCooldownSeconds` (per node) |
 | Contact | reed/PIR/beam trigger | `ContactAlertCooldownSeconds` (per node) |
+| Drone | Remote ID broadcast heard by a sniffer | `DroneAlertCooldownSeconds` (per node) |
 | Sensor offline | watchdog: expected sensor silent | once until it returns |
 | HIGH CONFIDENCE | ≥2 distinct sensor types within the correlation window | `CorrelationCooldownSeconds` |
 
 All alert types respect [arming](security.md); cooldowns are independent per
 (node, type), so a vehicle at the gate never masks a knock at the fence.
+Lightning strikes log but never alert; instead, vibration alerts within
+`LightningLabelSeconds` of a strike carry a "possible thunder" label and stay
+out of correlation.
 
 ## The notification log
 

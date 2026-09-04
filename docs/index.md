@@ -1,9 +1,10 @@
 # meshtripwire
 
 **Camera-free, cloud-free perimeter security for remote properties.** Cheap
-distributed sensors (WiFi/BLE sniffers, a magnetometer on the driveway, piezo
-discs on the fence, reed switches on the gates) feed a Raspberry Pi base
-station that filters, classifies, correlates, logs, and alerts. Everything runs
+distributed sensors (WiFi/BLE and drone Remote ID sniffers, a magnetometer on
+the driveway, piezo discs on the fence, reed switches on the gates, a
+lightning sensor for storm context) feed a Raspberry Pi base station that
+filters, classifies, correlates, logs, and alerts. Everything runs
 over WiFi/MQTT by default; an optional LoRa mesh (Meshtastic or LXMF/Reticulum)
 extends sensors and alerts off-grid where there is no Internet or WiFi.
 
@@ -18,6 +19,8 @@ flowchart LR
         S5["Vehicle sensor<br/>QMC5883L magnetometer"]
         S6["Vibration sensor<br/>piezo knock/shake"]
         S7["Contact sensors<br/>reed / PIR / beam-break"]
+        S8["Lightning sensor<br/>AS3935, thunder labeling"]
+        S9["Drone Remote ID<br/>sniffer compile flag"]
     end
 
     S1 -->|MQTT| BROKER
@@ -25,6 +28,8 @@ flowchart LR
     S5 -->|WiFi/MQTT or LoRa| BROKER
     S6 -->|WiFi/MQTT or LoRa| BROKER
     S7 -->|LoRa mesh| BROKER
+    S8 -->|WiFi/MQTT or LoRa| BROKER
+    S9 -->|WiFi/MQTT or LoRa| BROKER
 
     subgraph base["Raspberry Pi base station (Docker)"]
         BROKER["Mosquitto broker"]

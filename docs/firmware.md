@@ -30,6 +30,12 @@ Key knobs: `RSSI_MIN` (ignore weak frames), `COOLDOWN_MS` (per-MAC re-publish
 suppression), on-device `WHITELIST[]` (known MACs are never transmitted; they
 would waste LoRa airtime).
 
+**Drone Remote ID** (`DETECT_DRONEID 1`): the same sniffer also reports drone
+Remote ID broadcasts (ASTM F3411 / Open Drone ID), the public identification
+signal most drones must transmit. WiFi mode matches the beacon vendor IE
+(ASD-STAN OUI `FA:0B:BC`); BLE mode matches service data UUID `0xFFFA`.
+Passive reception only; RSSI stands in for proximity.
+
 ## Vehicle sensor (`qmc5883l_vehicle`)
 
 **Wiring** (GY-271 module, I2C): VCC→3V3, GND→GND, SDA→GPIO8, SCL→GPIO9 (the
@@ -57,6 +63,19 @@ of mesh.
 then set `SPIKE_THRESHOLD` above the loudest wind reading and below your
 softest real knock. `SHAKE_HITS`/`WINDOW_MS` set how much repetition counts
 as climbing.
+
+## Lightning sensor (`as3935_lightning`)
+
+**Wiring** (AS3935 module, I2C): VCC→3V3, GND→GND, SDA→GPIO8, SCL→GPIO9,
+IRQ→`IRQ_PIN` (default GPIO4). Keep it away from switching supplies and LED
+drivers; the AS3935 hears electrical noise as disturbers.
+
+**Calibration**: flash with `DEBUG_PRINT` on during a quiet day. Frequent
+"noise"/"disturber" prints mean raise `NOISE_FLOOR`/`WATCHDOG` or move the
+module. `TUNING_CAP` trims the antenna (0–15, module-specific); `OUTDOOR`
+switches AFE gain. Each strike reports with an estimated distance, and the
+monitor uses them to thunder-label vibration alerts
+([Configuration](configuration.md): `LightningLabelSeconds`).
 
 ## Backhaul modes
 

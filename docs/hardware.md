@@ -12,7 +12,7 @@ like).
 | | microSD 16GB+ | $6 | Or boot from USB/SSD. |
 | **Base scanner radios** | USB BLE adapter | $8–12 | Any BlueZ-compatible dongle; many Pis have BLE built in ($0). |
 | | [USB WiFi adapter w/ monitor mode](https://amzn.to/46jq68C) | $10–15 | Needs an mac80211 monitor-capable chipset (e.g. RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
-| **WiFi/BLE sniffer node** | [ESP32-C3 SuperMini](https://amzn.to/4gODyHE) | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). Onboard PCB antenna is often detuned on clones → shorter range; prefer u.FL/external antenna if coverage matters. Deploy several. |
+| **WiFi/BLE sniffer node** | [ESP32-C3 SuperMini](https://amzn.to/4gODyHE) | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). Also detects drone Remote ID with a compile flag. Onboard PCB antenna is often detuned on clones (shorter range); prefer u.FL/external antenna if coverage matters. Deploy several. |
 | | [ESP32-WROOM-32 DevKitC](https://amzn.to/45GHggp) | $3–5 | Dual-core alternative, no real advantage for sniffing. |
 | **Vehicle sensor node** | GY-271 (QMC5883L) magnetometer + any ESP32 above | $2–3 | I2C module; detects the magnetic signature of vehicles within ~2–5 m, no phone required. |
 | **Vibration sensor node** | Piezo disc (27 mm) + 1 MΩ resistor + any ESP32 above | <$1 | Glued to a door/gate/fence; classifies knock vs sustained shaking on-device, ignores wind. |

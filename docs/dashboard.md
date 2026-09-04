@@ -9,13 +9,15 @@ because the whole point is working where there is no Internet.
 ## Live view (`/`)
 
 - **24h strip chart**: one row per node, events as color-coded ticks
-  (vehicle amber, vibration ember, contact teal, wireless slate). Correlated
+  (vehicle amber, vibration ember, contact teal, wireless slate, drone
+  violet). Correlated
   events **line up vertically across rows**: the chart shows the fusion
   logic structurally.
 - **Nodes**: per-node last-seen and totals; nodes silent past 30 minutes
   flag in red.
 - **Notification log**: the last 40 delivery attempts with ✓/✗ and errors.
-- **Recent events**: live feed, refreshing every 5 s, with an
+- **Recent events**: live feed, refreshing every 5 s, showing thunder-labeled
+  vibration events as "(thunder?)" and lightning strikes with distance, with an
   "unknown & strong signals only" filter that hides whitelisted gear and weak
   sightings.
 

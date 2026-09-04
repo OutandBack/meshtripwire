@@ -38,8 +38,8 @@ fence run, classified on-device:
 ## Drone detection (Remote ID, firmware-only)
 
 Enable `DETECT_DRONEID` in the ESP32 sniffer and it also hears **drone Remote
-ID broadcasts** (ASTM F3411 / Open Drone ID) — the public identification
-signal most drones must transmit — over the same WiFi/BLE radio it already
+ID broadcasts** (ASTM F3411 / Open Drone ID), the public identification
+signal most drones must transmit, over the same WiFi/BLE radio it already
 sniffs. Zero extra hardware: counter-UAS early warning as a compile flag.
 Alerts are rate-limited by `DroneAlertCooldownSeconds`.
 
@@ -49,7 +49,7 @@ Alerts are rate-limited by `DroneAlertCooldownSeconds`.
 strikes up to ~40 km away, locally, with no weather API. Its role is
 false-positive control: thunder passes the piezo's wind filter, so after a
 strike the monitor labels vibration alerts within `LightningLabelSeconds` as
-possible thunder. They still alert (label, not drop — a storm is cover for a
+possible thunder. They still alert (label, not drop; a storm is cover for a
 real intruder) but carry the tag and stay out of correlation.
 
 ## Contact sensors (no custom firmware)
