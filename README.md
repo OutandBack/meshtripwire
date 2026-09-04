@@ -1,196 +1,136 @@
 # meshtripwire
 
-Wireless tripwire for remote properties. Distributed sensors detect nearby WiFi/BLE MAC addresses and feed them to a Raspberry Pi base station that filters, logs, and alerts on unknown devices. Everything runs over WiFi/MQTT by default; an optional LoRa mesh (Meshtastic, MeshCore, or Reticulum) extends sensors and alerts off-grid where there's no Internet or WiFi.
+Camera-free, cloud-free perimeter security for remote properties. Cheap
+distributed sensors detect wireless devices, vehicles, fence vibration, doors,
+lightning, and drones, and feed a Raspberry Pi base station that filters,
+correlates, logs, and alerts. Everything runs over WiFi/MQTT by default; an
+optional LoRa mesh (Meshtastic, MeshCore, or LXMF/Reticulum) extends sensors
+and alerts off-grid where there is no Internet or WiFi.
 
-Proof of concept, provided as-is. Not affiliated with the Meshtastic, MeshCore, or Reticulum projects.
+Proof of concept, provided as-is. Not affiliated with the Meshtastic, MeshCore,
+or Reticulum projects. Docs: [docs.meshtripwire.org](https://docs.meshtripwire.org/)
+
+## Sensors
+
+Every sensor is a cheap module publishing tiny events; the base station owns
+all the logic. Mix whatever fits your site.
+
+| Sensor | Detects | Hardware per node | Source |
+|---|---|---|---|
+| Wireless presence | WiFi/BLE devices (phones, gear) by MAC | Pi's own radios ($0) or ESP32-C3 ($3) | `sensors/base_scanner.py`, `firmware/esp32_sniffer/` |
+| Drone Remote ID | mandated drone ID broadcasts (ASTM F3411) | same sniffer, compile flag | `firmware/esp32_sniffer/` (`DETECT_DRONEID`) |
+| Vehicle | magnetic signature within ~2–5 m, no phone aboard needed | ESP32 + QMC5883L magnetometer ($2) | `firmware/qmc5883l_vehicle/` |
+| Vibration | door knock vs sustained climbing/shaking; ignores wind | ESP32 + piezo disc (<$1) | `firmware/piezo_vibration/` |
+| Contact / motion | reed switch, PIR, IR beam-break, float switch | sensor on a Meshtastic node's GPIO | stock Detection Sensor module, no custom firmware |
+| Lightning | strikes to ~40 km; labels storm-window vibration alerts as possible thunder | ESP32 + AS3935 ($8) | `firmware/as3935_lightning/` |
+| Mesh-device presence | people carrying LoRa mesh nodes | the base station's USB Meshtastic node | `mqtt/serial_bridge.py` |
+
+Classification happens on the sensor (a knock is distinguished from climbing on
+the ESP32 itself), so events are a few bytes and survive a LoRa link. Details,
+wiring, and calibration for each: [`firmware/README.md`](firmware/README.md).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph sensors["Sensors — MAC sightings {mac, from, rssi} + vehicle events"]
-        S1["Base scanner<br/>WiFi + BLE<br/>(sensors/base_scanner.py)"]
-        S2["ESP32 sniffer node<br/>WiFi promiscuous<br/>(firmware/esp32_sniffer)"]
-        S4["ESP32 sniffer node<br/>BLE scan<br/>(firmware/esp32_sniffer)"]
-        S3["USB LoRa-mesh bridge<br/>Meshtastic (optional)<br/>(mqtt/serial_bridge.py)"]
-        S5["ESP32 vehicle sensor<br/>QMC5883L magnetometer<br/>(firmware/qmc5883l_vehicle)"]
-        S6["ESP32 vibration sensor<br/>piezo disc knock/shake<br/>(firmware/piezo_vibration)"]
-        S7["Contact sensors: reed/PIR/beam<br/>stock Meshtastic Detection Sensor<br/>(no custom firmware)"]
+    subgraph sensors["Sensor nodes"]
+        WM["Wireless + drone sniffers<br/>Pi radios · ESP32"]
+        PH["Physical sensors<br/>magnetometer · piezo · AS3935"]
+        CT["Contact sensors<br/>reed / PIR / beam on Meshtastic GPIO"]
     end
-
-    S1 -->|MQTT| BROKER
-    S2 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
-    S4 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
-    S3 -->|MQTT| BROKER
-    S5 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
-    S6 -->|WiFi/MQTT or<br/>serial→LoRa| BROKER
-    S7 -->|LoRa mesh| BROKER
-
-    subgraph base["Raspberry Pi base station (Docker)"]
-        BROKER["Mosquitto broker<br/>topic: meshtastic/receive"]
-        MON["Monitor<br/>RSSI filter · EMA · whitelist<br/>(mqtt/mac_alert_monitor.py)"]
-        DB[("SQLite<br/>detections.db")]
-        NR["Dashboard<br/>(dashboard/server.py) :8080"]
-        BROKER --> MON
-        MON --> DB
-        DB --> NR
+    WM -->|"WiFi/MQTT or LoRa mesh"| BROKER
+    PH -->|"WiFi/MQTT or LoRa mesh"| BROKER
+    CT -->|"LoRa mesh"| BROKER
+    subgraph base["Base station (Raspberry Pi, Docker)"]
+        BROKER["Mosquitto broker"]
+        MON["Monitor: RSSI filter · whitelist · dwell<br/>arming · thunder labeling · correlation"]
+        DB[("SQLite events")]
+        DASH["Dashboard :8080"]
+        BROKER --> MON --> DB --> DASH
     end
-
-    MON -->|unknown MAC| ALERTS
-    subgraph ALERTS["Alerts (rate-limited per MAC)"]
-        A1["ntfy · webhook · Twilio<br/>(needs Internet)"]
-        A2["MQTT topic → RelayFabric<br/>→ Meshtastic / MeshCore / Reticulum (off-grid)"]
-    end
+    MON --> AL["Alerts, per-channel logged:<br/>ntfy · webhook · Twilio SMS · SMTP<br/>MQTT → RelayFabric → LoRa mesh (off-grid)"]
 ```
 
-**Caveats:**
-- Any sensor that publishes `{"mac", "from", "rssi"}` JSON to MQTT works (see [Where MACs come from](#where-macs-come-from)). LoRa mesh firmware is only a transport for reaching out-of-range sensors and alerts — the pipeline doesn't depend on it. (Note: stock Meshtastic's Paxcounter module sends only anonymized *counts*, not per-MAC data, so it can't feed the whitelist on its own.)
-- Modern phones randomize their MACs. Whitelist fixed devices (cameras, sensors, laptops); treat phone MACs as ephemeral.
+**Reality checks:**
+
+- Modern phones randomize their MACs: wireless sensing detects *presence*, not
+  identity. Whitelist fixed devices (cameras, sensors, laptops) and lean on the
+  dwell filter; the physical sensors cover visitors carrying nothing at all.
+- Any device on the LAN or mesh can claim to be a sensor. Harden the broker
+  before trusting the data further than your fence line (see Configuration).
 
 ## How it works
 
-Sensors scan for nearby MACs and publish sightings to the base station's MQTT broker (out-of-range nodes backhaul over LoRa first; see [Where MACs come from](#where-macs-come-from)). The base station runs Mosquitto and `mqtt/mac_alert_monitor.py`, which:
+Sensors publish to one MQTT topic. The monitor (`mqtt/mac_alert_monitor.py`):
 
-1. Parses sightings from MQTT (`meshtastic/receive`)
-2. Drops signals below the RSSI threshold, smooths the rest with an EMA
-3. Checks the MAC against `config/whitelist.txt` (hot-reloaded on file change, no restart needed)
-4. Logs every detection to SQLite (`logs/detections.db`), tagged with GPS from the payload or the static per-node coordinates in `config/nodes.json`; all sensor activity (MAC and non-MAC alike) also lands as canonical rows in an `events` table
-5. Alerts on unknown MACs via ntfy.sh, webhook, Twilio SMS, or an MQTT topic, rate-limited per MAC; sensor events (vehicle/vibration/contact) alert with per-type cooldowns, and clusters of distinct sensor types within the `[Correlation]` window escalate to a combined HIGH CONFIDENCE alert
+1. Normalizes every wire format into one canonical event and logs it to SQLite
+   (`events` table), tagged with GPS from the payload or `config/nodes.json`
+2. Runs MAC sightings through an RSSI floor, EMA smoothing, the hot-reloaded
+   whitelist, and the dwell filter; classified sensor events skip straight to
+   alerting with per-type cooldowns
+3. Labels vibration events that coincide with lightning as possible thunder
+   (they still alert, but can't drive correlation)
+4. Escalates when ≥2 distinct sensor types trigger within the correlation
+   window: one combined **HIGH CONFIDENCE** alert listing the contributors
+5. Dispatches each alert to every enabled channel and records the per-channel
+   delivery outcome in a notification log
 
-A built-in dashboard (`dashboard/server.py`, port 8080) shows a 24h per-node activity strip chart — correlated events line up vertically — plus node health, a notification delivery log, and a live event feed with an unknown-and-strong-signals filter.
+The built-in dashboard (port 8080) shows a 24h per-node strip chart where
+correlated events line up vertically, node health, the notification log, and a
+live feed. It is stdlib-only, read-only, mobile-friendly, and has a
+red-flashlight night mode. `/history` searches everything ever recorded by
+text, type, node, and date range.
 
 ![meshtripwire dashboard in night mode: an intrusion sequence tracked from driveway to front door, HIGH CONFIDENCE correlation in the notification log, and thunder-labeled vibration events](docs/dashboard.png)
 
-`/history` searches all past activity by free text (node/MAC/event), type, node, event, and date/time range; pre-v0.2 detections are backfilled into the events table on first start so history reaches all the way back. Stdlib only, read-only, works fully offline.
+## Off-grid backhaul
 
-### Where MACs come from
+Sensors beyond WiFi range print compact lines (`AABBCC112233,-64`, `V,84`,
+`K,812`) over serial to a mesh radio; a bridge at the base station expands them
+back into events. Three stacks are supported:
 
-Anything that publishes `{"mac","from","rssi"}` to `meshtastic/receive` is a
-sensor. Available sources, in order of effort:
+| Mesh | Field side | Base side |
+|---|---|---|
+| **Meshtastic** | wire sensor TX to a node's Serial module (`TEXTMSG` mode) | `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0` |
+| **MeshCore** | build with `SERIAL_MESHCORE 1`, wire to a companion node | `python -m mqtt.meshcore_bridge --serial-port /dev/ttyUSB0` |
+| **LXMF/Reticulum** | `sensors/rns_field_relay.py` on a small relay host (Pi Zero + RNode) | `python -m mqtt.rns_bridge` |
 
-- **Base-station scanner** (`sensors/base_scanner.py`) — sniffs real WiFi/BLE
-  MACs on the machine running the broker. No firmware; range limited to the base
-  station's radios. `python -m sensors.base_scanner --node base --ble [--wifi wlan1mon]`
-- **ESP32 sniffer nodes** (`firmware/esp32_sniffer/`) — dedicated ESP32s doing
-  promiscuous WiFi *or* BLE capture (one radio per board), backhauling over
-  WiFi/MQTT or serial→LoRa mesh (Meshtastic/MeshCore/Reticulum). Distributed
-  coverage. See `firmware/README.md`.
-- **USB LoRa-mesh bridge** (`mqtt/serial_bridge.py`) — forwards RF packets a
-  locally attached Meshtastic node hears; the "MAC" is the transmitting node's
-  radio, so this is a tripwire for people carrying mesh devices, not general
-  WiFi/BLE. (Meshtastic-specific today; the JSON contract is transport-neutral.)
-- **Custom sensor firmware** — the original vision, scan + LoRa in one node.
-  Not provided; would emit the same `{mac, from, rssi}` over any mesh.
+The compact format, on-device whitelists, and node→name mapping cut LoRa
+traffic 10–20×; wiring and bandwidth notes in
+[`firmware/README.md`](firmware/README.md).
 
-Two non-MAC sources publish classified events instead of sightings — the
-**vehicle sensor** (`firmware/qmc5883l_vehicle/`, QMC5883L magnetometer: field
-shift of a passing vehicle, no phone required) and the **vibration sensor**
-(`firmware/piezo_vibration/`, piezo disc on a door or fence: distinguishes a
-brief knock from sustained climbing/shaking, ignores wind). They publish
-`{"event":"vehicle"|"knock"|"shake","from":node,...}` (or compact `V,`/`K,`/`S,`
-lines over the LoRa relay), which the monitor routes straight to alerting: no
-whitelist or dwell, but arming and per-type cooldowns
-(`VehicleAlertCooldownSeconds`, `KnockAlertCooldownSeconds`,
-`ShakeAlertCooldownSeconds`) apply. Details in `firmware/README.md`.
-
-Digital sensors (reed switch, PIR, IR beam-break, float) need no custom
-firmware: wire them to a Meshtastic node's GPIO and enable the stock
-**Detection Sensor module** — `serial_bridge.py` maps its mesh messages to
-`contact` events (`ContactAlertCooldownSeconds`, default 60). All events land
-in an `events` table in SQLite alongside the MAC `detections`.
-
-When alertable events from ≥2 distinct sensor types (vehicle, vibration,
-contact, wireless presence) occur within `[Correlation]`'s window (default
-120 s), the monitor additionally sends one combined **HIGH CONFIDENCE** alert
-listing the contributors. Individual alerts still fire normally.
-
-### Off-grid sensors (LoRa relay)
-
-For sensors out of WiFi range, an ESP32 sniffer backhauls its sightings over a
-LoRa mesh instead of MQTT. End-to-end:
-
-```
-ESP32 sniffer ──serial──▶ field mesh node ──LoRa──▶ base mesh node ──USB──▶ base station
- OUTPUT_SERIAL 1          Meshtastic Serial module              serial_bridge.py ─▶ MQTT ─▶ monitor
-```
-
-1. **Sniffer** — build `firmware/esp32_sniffer/` with `OUTPUT_SERIAL 1`. It
-   prints one compact line per sighting to its UART: `AABBCC112233,-64` (MAC hex,
-   no colons, then RSSI) — ~16 bytes vs ~56 for JSON. To save airtime it only
-   reports MACs *not* in the on-device `WHITELIST[]`, so your own gear never hits
-   the mesh.
-2. **Field mesh node** — wire the ESP32's TX to a nearby Meshtastic node's RX
-   (shared ground) and enable its Serial module in text mode:
-   `meshtastic --set serial.enabled true --set serial.mode TEXTMSG --set serial.baud BAUD_115200`.
-   Each line goes out as a LoRa text message.
-3. **Base mesh node** — a Meshtastic node on USB to the Pi receives the messages.
-4. **Bridge** — `python -m mqtt.serial_bridge --serial-port /dev/ttyUSB0
-   [--sensor-map config/sensor_nodes.json]` parses the compact line, restores the
-   MAC, tags it with the sensor name mapped from the relay node id, and republishes
-   full JSON to the broker. The monitor treats it like any other sighting, and the
-   same bridge still flags node *presence* (see the USB LoRa-mesh bridge above).
-
-The compact format, on-device whitelist, and node→name mapping together cut LoRa
-traffic ~10–20× (see the bandwidth notes in `firmware/README.md`). Also keep
-`COOLDOWN_MS` high and `RSSI_MIN` tight — MAC randomization can still generate
-more sightings than the channel carries.
-
-**MeshCore instead of Meshtastic:** build the sensor sketches with
-`SERIAL_MESHCORE 1`; they then frame each line in MeshCore's companion serial
-protocol as a channel message (with a `NODE_ID:` prefix, since MeshCore channel
-messages carry no sender id) for a wired MeshCore companion node (e.g. a Heltec
-V3). At the base, run `python -m mqtt.meshcore_bridge --serial-port
-/dev/ttyUSB0` (needs `pip install meshcore`) against a companion radio on the
-same channel; it maps the prefixed lines to the same MQTT payloads. Sensor and
-base radios must share the channel key.
-
-**Reticulum instead of Meshtastic:** sensors reach an LXMF/Reticulum network
-through a small relay host (e.g. a Pi Zero W with an RNode) instead of a wired
-mesh node; `sensors/rns_field_relay.py` reads the unmodified sensor's serial
-lines and sends each as an LXMF message. At the base, run
-`python -m mqtt.rns_bridge` (needs `pip install rns lxmf`); it prints its LXMF
-destination hash for the relays and republishes their lines as the same MQTT
-payloads. Interfaces (RNode, TCP tunnels, ...) come from each host's own RNS
-config.
-
-### Off-grid alerts (RelayFabric)
-
-ntfy, webhook, and Twilio all need the Internet — the opposite of the remote
-sites this is built for. Set `EnableMqtt = true` in `[Notifications]` and the
-monitor publishes each alert (JSON: `mac`, `node`, `ts`, `message`) to
-`MqttAlertTopic` on the same broker. [RelayFabric](https://github.com/RelayFabric/RelayFabric)
-subscribes to that topic and relays alerts over a **LoRa mesh — Meshtastic,
-MeshCore, or LXMF/Reticulum**, so they reach you with no cellular. See RelayFabric's
-`meshtripwire` plugin (formatted alerts) or `examples/meshtripwire.yaml` (relay
-with the generic `mqtt` plugin, no extra code).
+Alerts leave off-grid the same way: set `EnableMqtt = true` and
+[RelayFabric](https://github.com/RelayFabric/RelayFabric) picks alerts off the
+broker and carries them over Meshtastic, MeshCore, or LXMF/Reticulum, no
+cellular required (see its `meshtripwire` plugin).
 
 ## Hardware
 
-Nothing here is required all at once — build the base station, then add whichever
-sensors fit your site. Prices are rough street prices (mid-2026, USD) for the
-cheap-clone tier; brand-name versions cost more. Product links are Amazon
-affiliate links (they help fund the project; buy anywhere you like).
+Nothing is required all at once: build the base station, then add whichever
+sensors fit your site. Rough street prices (mid-2026, USD) for the cheap-clone
+tier. Product links are Amazon affiliate links (they help fund the project;
+buy anywhere you like).
 
 | Role | Part | ~Cost | Notes |
 |------|------|-------|-------|
 | **Base station** | [Raspberry Pi 4 (2GB+)](https://amzn.to/4hT1AlV) | $45–99 | Runs the whole Docker stack. A Pi Zero 2 W (~$15) works for light loads. |
 | | microSD 16GB+ | $6 | Or boot from USB/SSD. |
 | **Base scanner radios** | USB BLE adapter | $8–12 | Any BlueZ-compatible dongle; many Pis have BLE built in ($0). |
-| | [USB WiFi adapter w/ monitor mode](https://amzn.to/46jq68C) | $10–15 | Needs an mac80211 monitor-capable chipset (e.g. RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
-| **WiFi/BLE sniffer node** | [ESP32-C3 SuperMini](https://amzn.to/4gODyHE) | $2–3 | Cheapest sniffer; one radio per board (WiFi *or* BLE). WiFi-range backhaul only. Onboard PCB antenna is often detuned on these clones → shorter range; prefer a board with a u.FL/external antenna if coverage matters. Deploy several. |
-| | [ESP32-WROOM-32 DevKitC](https://amzn.to/45GHggp) | $3–5 | Dual-core alternative, no real advantage for sniffing. |
-| **Vehicle sensor node** (optional) | GY-271 (QMC5883L) magnetometer + any ESP32 above | $2–3 | I2C module; detects the magnetic signature of vehicles within ~2–5 m, no phone required. See `firmware/README.md`. |
-| **Vibration sensor node** (optional) | Piezo disc (27 mm) + 1 MΩ resistor + any ESP32 above | <$1 | Glued to a door/gate/fence; classifies knock vs sustained shaking on-device, ignores wind. See `firmware/README.md`. |
-| **Off-grid / LoRa node** (optional) | [Heltec WiFi LoRa 32 V3](https://amzn.to/4gQIko0) | $12–18 | Only for sensors/alerts beyond WiFi range. Runs Meshtastic, MeshCore, or Reticulum. Same board as the reference node. |
-| | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
-| **Power (per remote node)** | [18650 cell + holder](https://amzn.to/4c9de8z), or USB PSU | $5–15 | Solar + LiPo for true off-grid; a phone charger indoors. |
+| | [USB WiFi adapter w/ monitor mode](https://amzn.to/46jq68C) | $10–15 | Needs a monitor-capable chipset (RTL8812AU, AR9271). Onboard Pi WiFi usually can't sniff. |
+| **Sniffer node** | [ESP32-C3 SuperMini](https://amzn.to/4gODyHE) | $2–3 | One radio per board (WiFi *or* BLE); deploy several. Clone PCB antennas are often detuned; prefer u.FL/external if coverage matters. |
+| | [ESP32-WROOM-32 DevKitC](https://amzn.to/45GHggp) | $3–5 | Dual-core alternative; no real advantage for sniffing. |
+| **Vehicle sensor** | GY-271 (QMC5883L) + any ESP32 above | $2–3 | I2C magnetometer. |
+| **Vibration sensor** | Piezo disc (27 mm) + 1 MΩ resistor + any ESP32 | <$1 | Glued to a door, gate, or fence run. |
+| **Lightning sensor** | AS3935 module (CJMCU-3935) + any ESP32 | $8–15 | Thunder-labels piezo alerts so storms don't false-alarm. |
+| **Contact sensors** | Reed switch, PIR (AM312), IR beam-break, float | $1–8 | Straight onto a Meshtastic node's GPIO. |
+| **Off-grid / LoRa node** | [Heltec WiFi LoRa 32 V3](https://amzn.to/4gQIko0) | $12–18 | Only for reach beyond WiFi. Runs Meshtastic or MeshCore. |
+| | 868/915 MHz antenna | $2–5 | Match your region's band; never transmit without one. |
+| **Power (per remote node)** | [18650 cell + holder](https://amzn.to/4c9de8z), or USB PSU | $5–15 | Solar + LiPo for true off-grid. |
 
-Minimum viable tripwire: a **Pi with built-in BLE** running the base scanner —
-zero extra hardware, real BLE MACs, limited to the Pi's radio range. Add ESP32-C3
-sniffers for more WiFi coverage, and a Heltec V3 only when a sensor is beyond WiFi.
-
-Reality check: phone MAC randomization means every tier detects *presence*, not
-*identity* — buy for coverage (more cheap nodes), not for a fancier single node.
+Minimum viable tripwire: a Pi with built-in BLE running the base scanner. Add
+ESP32 sniffers for coverage, physical sensors for the approaches that matter,
+and a LoRa node only when something sits beyond WiFi. Buy for coverage (more
+cheap nodes), not for a fancier single node.
 
 ## Setup
 
@@ -202,99 +142,85 @@ Runs the full stack: Mosquitto, the monitor, and the dashboard (port 8080).
 docker compose up -d --build
 ```
 
-The monitor reaches the broker via the `MQTT_HOST=mosquitto` env override; `config/` and `logs/` are mounted from the host, so edit config and whitelist in place. The bundled `setup/mosquitto.conf` allows anonymous LAN publishes — add auth/TLS before exposing it further.
+`config/` and `logs/` are mounted from the host, so edit config and whitelist
+in place. The bundled `setup/mosquitto.conf` allows anonymous LAN publishes so
+sensors work out of the box; add broker auth/TLS before trusting it further.
 
 ### Bare metal (Raspberry Pi)
 
 ```bash
 bash setup/install_dependencies.sh   # apt packages, venv, Mosquitto
-```
-
-Edit `config/config.ini` (broker, thresholds, notification credentials), `config/whitelist.txt` (one MAC per line), and `config/nodes.json` (node ID to GPS mapping). Then, from the project root:
-
-```bash
 venv/bin/python -m mqtt.mac_alert_monitor
+venv/bin/python -m dashboard.server  # dashboard on :8080
 ```
 
-To run as a service, edit the paths/user in `setup/meshtripwire.service`, then:
+To run as a service, edit paths in `setup/meshtripwire.service`, then
+`sudo cp setup/meshtripwire.service /etc/systemd/system/ && sudo systemctl enable --now meshtripwire`.
+
+### First sensor
+
+The base station alone detects nothing. Fastest start, no extra hardware:
 
 ```bash
-sudo cp setup/meshtripwire.service /etc/systemd/system/
-sudo systemctl enable --now meshtripwire
+venv/bin/pip install bleak
+venv/bin/python -m sensors.base_scanner --node base --ble
 ```
 
-### Sensors
-
-The base station alone detects nothing — add at least one MAC source.
-
-**Base scanner** (no hardware beyond the Pi's own radios):
-
-```bash
-venv/bin/pip install bleak                                  # for --ble; scapy for --wifi
-venv/bin/python -m sensors.base_scanner --node base --ble   # add --wifi wlan1mon for WiFi
-```
-
-**ESP32 BLE sniffer** (`firmware/esp32_sniffer/`):
-
-1. Install the ESP32 board package in Arduino IDE (or PlatformIO), plus the
-   **PubSubClient** library. BLE mode uses the core's built-in `BLEDevice` — no
-   extra install.
-2. In `esp32_sniffer.ino`, set `#define SCAN_MODE SCAN_BLE`, then edit the config
-   block: `WIFI_SSID`/`WIFI_PASS`, `MQTT_HOST`/`MQTT_PORT`, a unique `NODE_ID`,
-   and `RSSI_MIN`. Leave `OUTPUT_SERIAL 0` for WiFi→MQTT backhaul.
-3. Put the C3 in download mode — hold **BOOT**, tap **RESET**, release BOOT — and
-   flash. Power over USB-C only while flashing (don't also feed the 5V pin).
-4. Open Serial Monitor at 115200; you'll see published sightings. Confirm they
-   land with `docker compose logs -f monitor`.
-
-Deploy WiFi sniffers (`SCAN_MODE SCAN_WIFI`) and BLE sniffers (`SCAN_MODE
-SCAN_BLE`) as separate boards — one radio each. Full options, serial→LoRa
-backhaul, and reality checks are in [`firmware/README.md`](firmware/README.md).
+Then flash ESP32 nodes per [`firmware/README.md`](firmware/README.md): pick
+the sketch, edit its config block (WiFi/MQTT or serial backhaul, node id,
+calibration knobs), flash, and watch `docker compose logs -f monitor` for
+arrivals.
 
 ## Configuration
 
 All settings live in `config/config.ini`:
 
-- `[MQTT]` — broker host/port/topic; optional `Username`/`Password` and `UseTLS`/`CAFile`
-- `[Files]` — data file paths; `RetentionDays` prunes old detections (0 = keep forever)
-- `[Filtering]` — `RSSIMin` threshold, `EMAlpha` smoothing, `StateTimeoutSeconds`, `AlertCooldownSeconds`, `DwellSeconds`
-- `[Sensors]` — `ExpectedSensors`, `SensorTimeoutSeconds`, `HeartbeatTopic` (sensor-offline watchdog)
-- `[Arming]` — `Schedule`, `ControlTopic`, `ControlSecret`, `ControlOverrideTTL` (when alerts are allowed to fire)
-- `[Notifications]` — enable/configure ntfy.sh, webhook, Twilio SMS, and the MQTT alert output (`EnableMqtt`/`MqttAlertTopic`, for off-grid relay via RelayFabric)
+- `[MQTT]`: broker host/port/topic, optional auth and TLS
+- `[Files]`: data paths; `RetentionDays` prunes old data (0 = keep forever)
+- `[Filtering]`: RSSI floor, EMA smoothing, dwell, per-sensor-type alert
+  cooldowns, `LightningLabelSeconds`
+- `[Sensors]`: the sensor-offline watchdog (`ExpectedSensors`, timeout, heartbeats)
+- `[Arming]`: schedule, MQTT arm/disarm control, control secret, override TTL
+- `[Correlation]`: distinct-type threshold, window, combined-alert cooldown
+- `[Notifications]`: ntfy.sh, webhook, Twilio SMS, SMTP (direct or via
+  SES/Gmail-style relays), and the MQTT alert output for RelayFabric
+
+Full key-by-key reference: [docs.meshtripwire.org/configuration](https://docs.meshtripwire.org/configuration/)
 
 ### Cutting false alarms
 
-Alerting on *every* unknown MAC is unusable in practice — MAC randomization means
-constant strangers. Three gates, all in `config.ini`:
+Alerting on every unknown MAC is unusable in practice; MAC randomization means
+constant strangers. The gates, all in `config.ini`:
 
-- **Dwell** (`DwellSeconds`) — only alert once a device has *persisted* that long,
-  so a car passing the fence is ignored and someone loitering isn't. The single
-  biggest false-positive reducer; try 120–300s.
-- **Arming** (`[Arming] Schedule = 22:00-06:00`) — only alert during away/asleep
-  hours. Or drive it live: publish `armed`/`disarmed`/`auto` to `ControlTopic`
-  (e.g. a phone-presence automation disarms while you're home). Because a disarm
-  turns off protection, set `ControlSecret` (messages become
-  `{"cmd":"disarmed","secret":"..."}`) so a random broker client can't disarm you,
-  and a manual override auto-reverts to the schedule after `ControlOverrideTTL`.
-- **Sensor watchdog** (`[Sensors] ExpectedSensors = gate,fence`) — alerts if a
-  listed sensor goes silent past `SensorTimeoutSeconds`, so a dead node or downed
-  mesh link doesn't become a silent blind spot. Sensors count as alive via any
-  detection they report or a heartbeat on `HeartbeatTopic` (`base_scanner`
-  publishes these automatically).
+- **Dwell** (`DwellSeconds`): only alert once a device has *persisted*, so a
+  passing car is ignored and someone loitering isn't. The single biggest
+  false-positive reducer; try 120–300 s.
+- **Arming** (`Schedule = 22:00-06:00`, or live over `ControlTopic`): only
+  alert during away/asleep hours. Set `ControlSecret` so a random broker client
+  can't disarm you; overrides auto-revert after `ControlOverrideTTL`.
+- **Thunder labeling**: after an AS3935 strike, vibration alerts are labeled
+  as possible thunder and kept out of correlation, so storms don't escalate.
+- **Sensor watchdog** (`ExpectedSensors = gate,fence`): alerts when a listed
+  sensor goes silent, so a dead node never becomes a silent blind spot.
 
 ## Log sync
 
-Back up detections to any cloud storage rclone supports:
+Back up the database to any cloud storage rclone supports:
 
 ```bash
 rclone config                                  # one-time remote setup
-bash setup/sync_logs.sh gdrive:meshtripwire    # or from cron, e.g. every 30 min
+bash setup/sync_logs.sh gdrive:meshtripwire    # or from cron
 ```
 
 ## Testing
 
 ```bash
-venv/bin/python test_smoke.py
+venv/bin/python test_smoke.py                # monitor pipeline end to end
+venv/bin/python -m mqtt.test_events          # plus per-module suites:
+venv/bin/python -m mqtt.test_serial_bridge   # bridges, events, dashboard
+venv/bin/python -m mqtt.test_meshcore_bridge
+venv/bin/python -m mqtt.test_rns_bridge
+venv/bin/python -m dashboard.test_server
 ```
 
 ## License
