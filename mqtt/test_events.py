@@ -32,9 +32,12 @@ ev = normalize({"event": "silence", "from": "gate", "seconds": 180})
 assert (ev["type"], ev["event"], ev["value"]) == ("attack", "silence", 180)
 ev = normalize({"event": "tracker", "from": "gate", "rssi": -60})
 assert (ev["type"], ev["event"], ev["value"]) == ("tracker", "detected", -60)
+ev = normalize({"event": "glass", "from": "cabin-window", "peak": 1900})
+assert (ev["type"], ev["event"], ev["sensor"], ev["value"]) == ("vibration", "glass", "piezo", 1900)
 for key in [("attack", "deauth"), ("attack", "rogue_ap"), ("attack", "silence"),
             ("attack", "blackout"), ("tracker", "detected"),
-            ("asset", "missing"), ("casing", "detected")]:
+            ("asset", "missing"), ("casing", "detected"),
+            ("vibration", "glass"), ("vehicle", "dark")]:
     assert key in TYPE_REGISTRY and TYPE_REGISTRY[key]["alertable"] is True, key
 
 # Not events: MAC sightings (handled by the MAC pipeline), junk, unknown types

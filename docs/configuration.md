@@ -41,6 +41,9 @@ defaults; everything below is the full reference.
 | `AssetAlertCooldownSeconds` | `3600` | watched-asset departure re-alert suppression |
 | `CasingDays` / `CasingWindowDays` | `3` / `14` | escalate an alerting unknown MAC seen on this many distinct days within the window (0 disables) |
 | `CasingAlertCooldownSeconds` | `86400` | per-MAC casing re-alert suppression |
+| `GlassAlertCooldownSeconds` | `300` | per-node glass-break re-alert suppression |
+| `DarkVehicleWindowSeconds` | `0` | escalate a vehicle event when no wireless device is sighted within this window (0 disables; needs sniffer coverage on the same approach) |
+| `DarkVehicleAlertCooldownSeconds` | `300` | dark-vehicle re-alert suppression |
 
 ## `[Sensors]`
 

@@ -21,6 +21,14 @@ TYPE_REGISTRY = {
         "cooldown_key": "ShakeAlertCooldownSeconds", "cooldown_default": 120,
         "template": "ALERT: Sustained shaking/climbing at node {node} ({val} hits).",
         "alertable": True},
+    ("vibration", "glass"): {
+        "cooldown_key": "GlassAlertCooldownSeconds", "cooldown_default": 300,
+        "template": "ALERT: Glass break detected at node {node} (peak {val}).",
+        "alertable": True},
+    ("vehicle", "dark"): {
+        "cooldown_key": "DarkVehicleAlertCooldownSeconds", "cooldown_default": 300,
+        "template": "ALERT: Dark vehicle at node {node}: no wireless device seen within {val}s.",
+        "alertable": True},
     ("contact", "trigger"): {
         "cooldown_key": "ContactAlertCooldownSeconds", "cooldown_default": 60,
         "template": "ALERT: Contact sensor triggered at node {node}.",
@@ -80,6 +88,7 @@ _LEGACY_EVENTS = {
     "rogue_ap": ("attack", "rogue_ap", "esp32", "rssi"),
     "silence": ("attack", "silence", "esp32", "seconds"),
     "tracker": ("tracker", "detected", "ble", "rssi"),
+    "glass": ("vibration", "glass", "piezo", "peak"),
 }
 
 _CANONICAL_KEYS = {"v", "type", "node", "sensor", "event", "value"}

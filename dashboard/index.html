@@ -248,6 +248,8 @@ function detail(e) {
   const thunder = (e.meta || {}).thunder ? ' (thunder?)' : '';
   if (e.event === 'shake') return `<b>${esc(e.value ?? '?')}</b> hits${thunder}`;
   if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>${thunder}`;
+  if (e.event === 'glass') return `peak <b>${esc(e.value ?? '?')}</b> (shatter)${thunder}`;
+  if (e.event === 'dark') return `no wireless within <b>${esc(e.value ?? '?')}</b>s`;
   if (e.type === 'vehicle') return `magnitude <b>${esc(e.value ?? '?')}</b>`;
   if (e.type === 'weather') return `<b>${esc(e.value ?? '?')}</b> km`;
   if (e.type === 'drone' || e.type === 'tracker') return `<b>${esc(e.value ?? '?')}</b> dBm`;

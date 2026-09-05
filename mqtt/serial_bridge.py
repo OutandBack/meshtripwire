@@ -52,7 +52,8 @@ def sighting_from_line(line, name):
     kinds = {'V': ('vehicle', 'mag'), 'K': ('knock', 'peak'), 'S': ('shake', 'hits'),
              'L': ('lightning', 'km'), 'D': ('drone', 'rssi'),
              'A': ('deauth', 'count'), 'R': ('rogue_ap', 'rssi'),
-             'Q': ('silence', 'seconds'), 'T': ('tracker', 'rssi')}
+             'Q': ('silence', 'seconds'), 'T': ('tracker', 'rssi'),
+             'G': ('glass', 'peak')}
     if len(line) > 2 and line[1] == ',' and line[0] in kinds:
         event, field = kinds[line[0]]
         try:

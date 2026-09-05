@@ -354,6 +354,32 @@ with tempfile.TemporaryDirectory() as tmp:
         monitor.check_casing('AA:AA:00:00:00:01', 'gate')  # no prior days: nothing
         assert sa.call_count == 1
 
+    # Glass break rides the vibration path with its own alert text
+    monitor.correlation_last_alert = time.time()
+    with mock.patch.object(monitor, 'send_alert') as sa:
+        assert monitor.handle_sensor_event(b'{"event":"glass","from":"cabin-window","peak":1900}') is True
+        assert sa.call_count == 1 and 'glass' in sa.call_args.kwargs['message'].lower()
+
+    # Dark vehicle: a vehicle with no wireless sighting in the window escalates
+    monitor.config.set('Filtering', 'DarkVehicleWindowSeconds', '60')
+    monitor.correlation_last_alert = time.time()
+    monitor.dark_vehicle_pending = None
+    with mock.patch.object(monitor, 'send_alert') as sa:
+        monitor.handle_sensor_event(b'{"event":"vehicle","from":"driveway","mag":70}')
+        assert monitor.dark_vehicle_pending is not None
+        monitor.check_dark_vehicle()               # window not yet elapsed: nothing
+        assert monitor.dark_vehicle_pending is not None
+        monitor.dark_vehicle_pending = (time.time() - 61, 'driveway')
+        monitor.check_dark_vehicle()
+        msgs = [c.kwargs.get('message', '') for c in sa.call_args_list]
+        assert any('Dark vehicle' in m for m in msgs), msgs
+        assert monitor.dark_vehicle_pending is None
+    # any wireless sighting cancels a pending dark-vehicle check
+    monitor.dark_vehicle_pending = (time.time(), 'driveway')
+    monitor.process_detection(dict(parsed, lat=None, lon=None))
+    assert monitor.dark_vehicle_pending is None
+    monitor.config.set('Filtering', 'DarkVehicleWindowSeconds', '0')
+
     # MAC detections also produce a wireless_presence event row with meta
     monitor.process_detection(dict(parsed, lat=None, lon=None))
     row = monitor.db_cursor.execute(

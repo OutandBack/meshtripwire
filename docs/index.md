@@ -82,7 +82,8 @@ unit-tested against the documented protocol but has not touched hardware.
 | Drone Remote ID detection (sniffer compile flag) | shipped | pipeline unit-tested; frame parsing compile-verified, awaiting a live Remote ID broadcast |
 | RF-attack detection (deauth, rogue AP, silence) | shipped | pipeline unit-tested; frame logic compile-verified, awaiting live attack traffic |
 | BLE tracker detection | shipped | pipeline unit-tested; advertisement matching compile-verified |
-| Asset departure, casing, mass blackout | shipped | unit-tested monitor logic |
+| Asset departure, casing, mass blackout, dark vehicle | shipped | unit-tested monitor logic |
+| Glass-break classification (piezo) | shipped | pipeline unit-tested; classifier compile-verified, awaiting a sacrificial jar |
 | Canonical event schema + events table | shipped | unit + smoke suites |
 | Cross-sensor correlation (HIGH CONFIDENCE alerts) | shipped | unit + smoke suites |
 | Alert channels: ntfy, webhook, Twilio, MQTT | shipped | live (ntfy, MQTT); mock-tested (webhook, Twilio) |

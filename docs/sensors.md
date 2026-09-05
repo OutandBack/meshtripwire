@@ -31,6 +31,8 @@ parks becomes the new baseline automatically.
 fence run, classified on-device:
 
 - **knock**: one or a few impacts then quiet (door knock, thrown rock)
+- **glass**: one impulse that *rings* densely for 100-300 ms (a shatter),
+  separated from a knock by over-threshold sample density
 - **shake**: 4+ impacts inside a rolling 5 s window (climbing, fence shaking)
 - **wind**: sustained low-amplitude noise stays below the spike threshold and
   produces nothing; the threshold *is* the wind filter
@@ -71,6 +73,9 @@ The same modules detect things done *to* the system and patterns across time:
   distinct days within the window; passers-by don't repeat
 - **Mass blackout**: `MassOfflineCount`+ sensors offline simultaneously is
   jamming or a power cut, not a dead battery
+- **Dark vehicle** (`DarkVehicleWindowSeconds`): a vehicle event with no
+  wireless sighting at all inside the window; a deliberately phone-off
+  visitor is arguably the most suspicious profile the system can detect
 
 ## Contact sensors (no custom firmware)
 

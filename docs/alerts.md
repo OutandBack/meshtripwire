@@ -75,6 +75,8 @@ when there is no Internet at all.
 | Unknown MAC | unknown device passed RSSI/whitelist/dwell while armed | `AlertCooldownSeconds` (per MAC) |
 | Vehicle | magnetometer event | `VehicleAlertCooldownSeconds` (per node) |
 | Impact/knock | piezo knock event | `KnockAlertCooldownSeconds` (per node) |
+| Glass break | piezo ring-density classifier | `GlassAlertCooldownSeconds` (per node) |
+| Dark vehicle | vehicle event with no wireless sighting in the window | `DarkVehicleAlertCooldownSeconds` (per node) |
 | Sustained shaking | piezo shake event | `ShakeAlertCooldownSeconds` (per node) |
 | Contact | reed/PIR/beam trigger | `ContactAlertCooldownSeconds` (per node) |
 | Drone | Remote ID broadcast heard by a sniffer | `DroneAlertCooldownSeconds` (per node) |

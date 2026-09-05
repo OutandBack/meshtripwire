@@ -68,7 +68,8 @@ of mesh.
 `env_max/baseline/hits_in_window` line. Knock, shake, and let the wind blow;
 then set `SPIKE_THRESHOLD` above the loudest wind reading and below your
 softest real knock. `SHAKE_HITS`/`WINDOW_MS` set how much repetition counts
-as climbing.
+as climbing. `GLASS_MIN_SAMPLES` separates a shatter (dense ringing, the
+`ring=` debug figure) from a knock; calibrate by tapping vs. breaking a jar.
 
 ## Lightning sensor (`as3935_lightning`)
 

@@ -20,7 +20,7 @@ all the logic. Mix whatever fits your site.
 | Wireless presence | WiFi/BLE devices (phones, gear) by MAC | Pi's own radios ($0) or ESP32-C3 ($3) | `sensors/base_scanner.py`, `firmware/esp32_sniffer/` |
 | Drone Remote ID | mandated drone ID broadcasts (ASTM F3411) | same sniffer, compile flag | `firmware/esp32_sniffer/` (`DETECT_DRONEID`) |
 | Vehicle | magnetic signature within ~2–5 m, no phone aboard needed | ESP32 + QMC5883L magnetometer ($2) | `firmware/qmc5883l_vehicle/` |
-| Vibration | door knock vs sustained climbing/shaking; ignores wind | ESP32 + piezo disc (<$1) | `firmware/piezo_vibration/` |
+| Vibration | knock vs glass break vs sustained climbing/shaking; ignores wind | ESP32 + piezo disc (<$1) | `firmware/piezo_vibration/` |
 | Contact / motion | reed switch, PIR, IR beam-break, float switch | sensor on a Meshtastic node's GPIO | stock Detection Sensor module, no custom firmware |
 | Lightning | strikes to ~40 km; labels storm-window vibration alerts as possible thunder | ESP32 + AS3935 ($8) | `firmware/as3935_lightning/` |
 | Mesh-device presence | people carrying LoRa mesh nodes | the base station's USB Meshtastic node | `mqtt/serial_bridge.py` |
@@ -30,7 +30,8 @@ the ESP32 itself), so events are a few bytes and survive a LoRa link. The same
 hardware also detects things done *to* the system and patterns across time:
 WiFi deauth attacks, rogue APs, RF-silence jamming, BLE trackers
 (AirTag-style), watched-asset departure (a known device vanishing), repeat
-visitors (casing), and mass sensor blackout. Details,
+visitors (casing), mass sensor blackout, and dark vehicles (a vehicle
+arriving with no wireless device at all). Details,
 wiring, and calibration for each: [`firmware/README.md`](firmware/README.md).
 
 ## Architecture

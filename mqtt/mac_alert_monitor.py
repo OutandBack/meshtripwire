@@ -29,6 +29,7 @@ lightning_last_ts = 0.0 # last AS3935 strike, for thunder-labeling vibration ale
 asset_last_seen = {} # Stores {'MAC': last_ts} for watched assets ([Assets] WatchedMacs)
 asset_missing = set() # Watched MACs currently flagged missing (alert once, until seen)
 mass_offline_alerted = False # blackout escalation latch, resets when sensors return
+dark_vehicle_pending = None # (ts, node) of a vehicle event awaiting a wireless sighting
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
@@ -327,6 +328,24 @@ def check_casing(mac, node_id):
                              meta={"mac": mac}, key_extra=mac)
 
 
+def check_dark_vehicle():
+    """Resolve a pending dark-vehicle check: if the window elapsed with no
+    wireless sighting at all, the visitor is deliberately radio-silent —
+    arguably the most suspicious profile the system can detect.
+
+    Needs sniffer coverage on the same approach as the vehicle sensor;
+    DarkVehicleWindowSeconds = 0 (the default) disables it.
+    """
+    global dark_vehicle_pending
+    window = config.getint('Filtering', 'DarkVehicleWindowSeconds', fallback=0)
+    if not dark_vehicle_pending or window <= 0:
+        return
+    ts, node = dark_vehicle_pending
+    if time.time() - ts > window:
+        dark_vehicle_pending = None
+        raise_internal_event("vehicle", "dark", node, window)
+
+
 def correlation_note(ev_type, node, event_name):
     """Feed one alertable event into the correlation buffer; escalate when
     distinct sensor types cluster inside the window.
@@ -453,6 +472,10 @@ def process_detection(detection_data):
     if mac in watched_assets():
         asset_last_seen[mac] = time.time()
         asset_missing.discard(mac)
+
+    # Any wireless sighting (known or unknown) means the vehicle wasn't dark
+    global dark_vehicle_pending
+    dark_vehicle_pending = None
 
     # Use the payload's GPS fix if present, else fall back to static node location
     lat = detection_data.get("lat")
@@ -617,8 +640,15 @@ def handle_sensor_event(payload_bytes):
     # so a storm can't mint HIGH CONFIDENCE alerts on its own. Label, not drop:
     # a storm is decent cover for a real intruder.
     thunder = False
+    global dark_vehicle_pending
     if ev["type"] == "weather":
         lightning_last_ts = time.time()
+    elif ev["type"] == "vehicle" and ev["event"] == "detected":
+        # A vehicle with no wireless sighting inside the window is a
+        # deliberately phone-off visitor; check_dark_vehicle resolves it.
+        if (dark_vehicle_pending is None
+                and config.getint('Filtering', 'DarkVehicleWindowSeconds', fallback=0) > 0):
+            dark_vehicle_pending = (time.time(), ev["node"])
     elif ev["type"] == "vibration":
         window = config.getint('Filtering', 'LightningLabelSeconds', fallback=120)
         thunder = window > 0 and time.time() - lightning_last_ts < window
@@ -839,6 +869,10 @@ def main():
     def committer():
         while not stop_committer.wait(5):
             maybe_commit()
+            try:
+                check_dark_vehicle()
+            except Exception as e:
+                logging.error(f"Dark-vehicle check error: {e}")
 
     threading.Thread(target=committer, daemon=True).start()
 

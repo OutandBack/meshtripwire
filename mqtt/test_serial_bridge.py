@@ -42,7 +42,8 @@ assert json.loads(out) == {'event': 'drone', 'from': 'gate', 'rssi': -58}, out
 for line, expect in [('A,47', {'event': 'deauth', 'from': 'gate', 'count': 47}),
                      ('R,-44', {'event': 'rogue_ap', 'from': 'gate', 'rssi': -44}),
                      ('Q,180', {'event': 'silence', 'from': 'gate', 'seconds': 180}),
-                     ('T,-60', {'event': 'tracker', 'from': 'gate', 'rssi': -60})]:
+                     ('T,-60', {'event': 'tracker', 'from': 'gate', 'rssi': -60}),
+                     ('G,1900', {'event': 'glass', 'from': 'gate', 'peak': 1900})]:
     out = payload_for({'decoded': {'text': line}, 'fromId': '!aabb'},
                       NODES, sensor_map={'!aabb': 'gate'})
     assert json.loads(out) == expect, (line, out)

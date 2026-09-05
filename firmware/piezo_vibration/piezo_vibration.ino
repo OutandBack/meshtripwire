@@ -48,6 +48,10 @@ const uint32_t HIT_GAP_MS      = 150;   // ringing within this gap is one hit, n
 const uint32_t WINDOW_MS       = 5000;  // rolling window for the shake decision
 const int      SHAKE_HITS      = 4;     // hits inside WINDOW_MS that mean climbing/shaking
 const uint32_t QUIET_MS        = 1500;  // silence after hits that closes a knock event
+const int      GLASS_MIN_SAMPLES = 80;  // over-threshold samples in one burst that mean glass:
+                                        // a knock is one impulse that decays (few samples); a
+                                        // shatter rings densely for 100-300 ms (many). Calibrate
+                                        // with DEBUG_PRINT: tap vs. break a jar, read ring=
 const uint32_t COOLDOWN_MS     = 15000; // one event per episode (monitor adds per-type cooldowns)
 // ----------------------------
 
@@ -128,6 +132,7 @@ int hitIdx = 0;
 uint32_t lastHit = 0, lastEvent = 0, lastReconnect = 0;
 bool pending = false;                   // a burst is open, waiting for quiet or shake
 int pendingPeak = 0;
+int burstSamples = 0;                   // over-threshold samples this burst (ring density)
 
 int hits_in_window(uint32_t now) {
   int n = 0;
@@ -161,8 +166,8 @@ void loop() {
   if (env > dbgMax) dbgMax = env;
   if (now - lastDbg > 1000) {
     lastDbg = now;
-    Serial.printf("env_max=%d baseline=%.0f hits_in_window=%d\n",
-                  dbgMax, baseline, hits_in_window(now));
+    Serial.printf("env_max=%d baseline=%.0f hits_in_window=%d ring=%d\n",
+                  dbgMax, baseline, hits_in_window(now), burstSamples);
     dbgMax = 0;
   }
 #endif
@@ -174,6 +179,7 @@ void loop() {
     }
     lastHit = now;
     pending = true;
+    burstSamples++;
     if (env > pendingPeak) pendingPeak = env;
     int hits = hits_in_window(now);
     if (hits >= SHAKE_HITS && now - lastEvent > COOLDOWN_MS) {
@@ -181,16 +187,18 @@ void loop() {
       report('S', hits);
       pending = false;
       pendingPeak = 0;
+      burstSamples = 0;
       for (int i = 0; i < HITS_N; i++) hitTimes[i] = 0;  // one climb = one event
     }
   } else if (pending && now - lastHit > QUIET_MS) {
-    // Burst ended below the shake bar: it was a knock/brief impact.
+    // Burst ended below the shake bar: dense ringing is glass, else a knock.
     if (now - lastEvent > COOLDOWN_MS) {
       lastEvent = now;
-      report('K', pendingPeak);
+      report(burstSamples >= GLASS_MIN_SAMPLES ? 'G' : 'K', pendingPeak);
     }
     pending = false;
     pendingPeak = 0;
+    burstSamples = 0;
   }
   delayMicroseconds(500);               // ~2 kHz sampling
 }
