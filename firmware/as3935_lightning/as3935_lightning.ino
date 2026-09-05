@@ -173,7 +173,7 @@ void loop() {
     uint8_t reason = as_read(0x03) & 0x0F;
     if (reason == 0x08) {               // lightning
       int km = as_read(0x07) & 0x3F;    // 1 = overhead, 63 = out of range
-      if (millis() - lastReport > COOLDOWN_MS) {
+      if (!lastReport || millis() - lastReport > COOLDOWN_MS) {  // 0 = never fired
         lastReport = millis();
         report(km);
       }

@@ -182,7 +182,7 @@ void loop() {
     burstSamples++;
     if (env > pendingPeak) pendingPeak = env;
     int hits = hits_in_window(now);
-    if (hits >= SHAKE_HITS && now - lastEvent > COOLDOWN_MS) {
+    if (hits >= SHAKE_HITS && (!lastEvent || now - lastEvent > COOLDOWN_MS)) {
       lastEvent = now;
       report('S', hits);
       pending = false;
@@ -192,7 +192,7 @@ void loop() {
     }
   } else if (pending && now - lastHit > QUIET_MS) {
     // Burst ended below the shake bar: dense ringing is glass, else a knock.
-    if (now - lastEvent > COOLDOWN_MS) {
+    if (!lastEvent || now - lastEvent > COOLDOWN_MS) {  // 0 = never fired
       lastEvent = now;
       report(burstSamples >= GLASS_MIN_SAMPLES ? 'G' : 'K', pendingPeak);
     }

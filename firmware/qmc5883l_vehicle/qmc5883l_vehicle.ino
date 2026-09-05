@@ -196,7 +196,7 @@ void loop() {
     over = 0;
     triggerStart = 0;
   } else if (over < CONSECUTIVE_N && ++over == CONSECUTIVE_N
-             && millis() - lastEvent > COOLDOWN_MS) {
+             && (!lastEvent || millis() - lastEvent > COOLDOWN_MS)) {  // 0 = never fired
     lastEvent = millis();
     report(delta);
   }

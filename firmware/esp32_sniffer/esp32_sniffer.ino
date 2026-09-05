@@ -172,7 +172,7 @@ uint32_t lastDrone = 0;
 // A drone's Remote ID is a mandated public broadcast; RSSI stands in for
 // proximity. Serial extraction from the ODID message pack is the upgrade path.
 void report_drone(int rssi) {
-  if (millis() - lastDrone < DRONE_COOLDOWN_MS) return;
+  if (lastDrone && millis() - lastDrone < DRONE_COOLDOWN_MS) return;  // 0 = never fired
   lastDrone = millis();
   report_event('D', "drone", "rssi", rssi);
 }
@@ -225,7 +225,7 @@ void sniffer_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
   if (type == WIFI_PKT_MGMT && (fc0 == 0xC0 || fc0 == 0xA0)) {
     uint32_t now = millis();
     if (now - deauthWinStart > DEAUTH_WINDOW_MS) { deauthWinStart = now; deauthCount = 0; }
-    if (++deauthCount >= (uint32_t)DEAUTH_THRESHOLD && now - lastDeauth > ATTACK_COOLDOWN_MS) {
+    if (++deauthCount >= (uint32_t)DEAUTH_THRESHOLD && (!lastDeauth || now - lastDeauth > ATTACK_COOLDOWN_MS)) {
       lastDeauth = now;
       report_event('A', "deauth", "count", deauthCount);
       deauthCount = 0;
@@ -243,7 +243,7 @@ void sniffer_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
       bool known = false;
       for (unsigned i = 0; i < sizeof(KNOWN_BSSIDS) / sizeof(KNOWN_BSSIDS[0]); i++)
         if (KNOWN_BSSIDS[i][0] && strcasecmp(KNOWN_BSSIDS[i], bssid) == 0) known = true;
-      if (!known && millis() - lastRogue > ATTACK_COOLDOWN_MS) {
+      if (!known && (!lastRogue || millis() - lastRogue > ATTACK_COOLDOWN_MS)) {
         lastRogue = millis();
         report_event('R', "rogue_ap", "rssi", p->rx_ctrl.rssi);
       }
@@ -298,21 +298,26 @@ class ScanCB : public BLEAdvertisedDeviceCallbacks {
           (uint8_t)md[2] == 0x12 && (uint8_t)md[3] == 0x19)
         tracker = true;                                  // Apple Find My offline-finding
     }
-    if (!tracker && dev.isAdvertisingService(BLEUUID((uint16_t)0xFEED)))
-      tracker = true;                                    // Tile
-    if (!tracker && dev.haveServiceData() &&
-        dev.getServiceDataUUID().equals(BLEUUID((uint16_t)0xFD5A)))
-      tracker = true;                                    // Samsung SmartTag
-    if (tracker && millis() - lastTracker > ATTACK_COOLDOWN_MS) {
+    // Service-data UUID match by normalized 128-bit string: BLEUUID::equals
+    // across a 16-bit literal and the advertised 128-bit form is version-flaky.
+    if (!tracker && dev.haveServiceData()) {
+      String su = dev.getServiceDataUUID().to128().toString().c_str();
+      su.toLowerCase();
+      if (su.indexOf("feed") >= 0 ||        // Tile
+          su.indexOf("fd5a") >= 0)          // Samsung SmartTag
+        tracker = true;
+    }
+    if (tracker && (!lastTracker || millis() - lastTracker > ATTACK_COOLDOWN_MS)) {
       lastTracker = millis();
       report_event('T', "tracker", "rssi", dev.getRSSI());
     }
 #endif
 #if DETECT_DRONEID
     // Open Drone ID over BLE: service data on the ASTM 16-bit UUID 0xFFFA
-    if (dev.haveServiceData() &&
-        dev.getServiceDataUUID().equals(BLEUUID((uint16_t)0xFFFA))) {
-      report_drone(dev.getRSSI());
+    if (dev.haveServiceData()) {
+      String su = dev.getServiceDataUUID().to128().toString().c_str();
+      su.toLowerCase();
+      if (su.indexOf("fffa") >= 0) report_drone(dev.getRSSI());
     }
 #endif
   }
@@ -352,9 +357,20 @@ void setup() {
   BLEDevice::init("");
   BLEScan* scan = BLEDevice::getScan();
   scan->setAdvertisedDeviceCallbacks(new ScanCB());
+  // Passive by default (lower power, doesn't transmit probes). Tracker and
+  // drone service data usually rides the scan RESPONSE, which only active
+  // scanning requests, so those features force active scan.
+#if DETECT_TRACKERS || DETECT_DRONEID
+  scan->setActiveScan(true);
+  scan->setInterval(160);      // 100 ms
+  scan->setWindow(80);         // 50 ms listen, 50 ms gap: active scan needs the
+                               // gap to send SCAN_REQ and catch the SCAN_RSP,
+                               // where tracker/drone service data lives
+#else
   scan->setActiveScan(false);  // passive: don't probe, just listen (lower power, less noise)
   scan->setInterval(160);
   scan->setWindow(160);        // ~100% duty within the interval
+#endif
   scan->start(0, nullptr, false);  // 0 = scan forever, results via callback
 #endif
 }
@@ -388,7 +404,7 @@ void loop() {
   static uint32_t lastSilence = 0;
   if (SILENCE_SECONDS && lastFrameMs &&
       millis() - lastFrameMs > SILENCE_SECONDS * 1000UL &&
-      millis() - lastSilence > ATTACK_COOLDOWN_MS) {
+      (!lastSilence || millis() - lastSilence > ATTACK_COOLDOWN_MS)) {
     lastSilence = millis();
     report_event('Q', "silence", "seconds", (millis() - lastFrameMs) / 1000);
   }
