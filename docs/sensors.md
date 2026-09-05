@@ -52,6 +52,26 @@ strike the monitor labels vibration alerts within `LightningLabelSeconds` as
 possible thunder. They still alert (label, not drop; a storm is cover for a
 real intruder) but carry the tag and stay out of correlation.
 
+## Derived detections (no new hardware)
+
+The same modules detect things done *to* the system and patterns across time:
+
+- **Deauth attack** (`DETECT_ATTACKS`): floods of 802.11 deauth/disassoc
+  frames, the standard trick for blinding WiFi cameras
+- **Rogue AP**: your SSID broadcast from a BSSID you don't own
+- **RF silence**: a sniffer that suddenly hears nothing at all is being jammed
+  (or the site truly went quiet; tune `SILENCE_SECONDS` to your RF floor)
+- **BLE trackers** (`DETECT_TRACKERS`): Apple Find My offline-finding, Tile,
+  and SmartTag advertisements; a tracker loitering on your property that isn't
+  yours means someone tagged a vehicle. Expect some benign hits from any
+  Find My device separated from its owner.
+- **Asset departure** (`[Assets] WatchedMacs`): inverse alerting; a *known*
+  MAC (your truck, a trail cam) going unseen past its timeout
+- **Casing**: an unknown MAC that alerts and has appeared on `CasingDays`
+  distinct days within the window; passers-by don't repeat
+- **Mass blackout**: `MassOfflineCount`+ sensors offline simultaneously is
+  jamming or a power cut, not a dead battery
+
 ## Contact sensors (no custom firmware)
 
 Anything producing a GPIO high/low (reed switches, PIR motion sensors, IR

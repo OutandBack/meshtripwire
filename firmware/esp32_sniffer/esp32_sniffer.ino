@@ -36,9 +36,24 @@
 #define DETECT_DRONEID 0                // 1 = also report drone Remote ID broadcasts (ASTM F3411 /
                                         // Open Drone ID): WiFi beacon vendor IE in SCAN_WIFI mode,
                                         // BLE service data 0xFFFA in SCAN_BLE mode
+#define DETECT_ATTACKS 0                // 1 = report RF attacks (SCAN_WIFI mode): deauth floods,
+                                        // rogue APs broadcasting PROTECT_SSID, and RF silence
+#define DETECT_TRACKERS 0               // 1 = report BLE trackers (SCAN_BLE mode): Apple Find My
+                                        // offline-finding, Tile, Samsung SmartTag advertisements
 const uint8_t MESHCORE_CHANNEL = 0;     // channel index on the wired MeshCore companion node
 const uint32_t DRONE_COOLDOWN_MS = 15000; // min gap between drone reports
                                           // ponytail: one global cooldown; per-drone if swarms matter
+
+// Attack detection knobs (DETECT_ATTACKS). Tune DEAUTH_THRESHOLD to your RF
+// environment: dense apartment WiFi sees benign deauths; a rural site sees none.
+const char* PROTECT_SSID  = "";         // rogue-AP alarm: beacons carrying this SSID from a
+const char* KNOWN_BSSIDS[] = { "" };    // BSSID not in this list are rogue. "" entries ignored.
+const int      DEAUTH_THRESHOLD  = 20;  // deauth/disassoc frames per window that mean attack
+const uint32_t DEAUTH_WINDOW_MS  = 10000;
+const uint32_t SILENCE_SECONDS   = 120; // zero frames this long = jamming suspect (0 disables).
+                                        // Caveat: with WiFi/MQTT backhaul a real jam also kills
+                                        // the report path; the base watchdog is the backstop.
+const uint32_t ATTACK_COOLDOWN_MS = 60000;
 const char* WIFI_SSID   = "your-ssid";
 const char* WIFI_PASS   = "your-pass";
 const char* MQTT_HOST   = "192.168.1.10";
@@ -129,6 +144,28 @@ bool is_whitelisted(const char* mac) {
   return false;
 }
 
+#if DETECT_DRONEID || DETECT_ATTACKS || DETECT_TRACKERS
+// Shared event reporter: compact "<kind>,<value>" over serial, JSON over MQTT.
+void report_event(char kind, const char* name, const char* field, int value) {
+#if OUTPUT_SERIAL
+  char line[16];
+  snprintf(line, sizeof(line), "%c,%d", kind, value);
+  #if SERIAL_MESHCORE
+    meshcore_send_line(line);
+  #else
+    Serial.println(line);
+  #endif
+#else
+  char payload[96];
+  snprintf(payload, sizeof(payload),
+           "{\"event\":\"%s\",\"from\":\"%s\",\"%s\":%d}", name, NODE_ID, field, value);
+  if (mqtt.connected()) mqtt.publish(MQTT_TOPIC, payload);
+#endif
+}
+
+uint32_t lastFrameMs = 0;   // any frame/advertisement heard, for silence detection
+#endif
+
 #if DETECT_DRONEID
 uint32_t lastDrone = 0;
 
@@ -137,20 +174,7 @@ uint32_t lastDrone = 0;
 void report_drone(int rssi) {
   if (millis() - lastDrone < DRONE_COOLDOWN_MS) return;
   lastDrone = millis();
-#if OUTPUT_SERIAL
-  char line[12];
-  snprintf(line, sizeof(line), "D,%d", rssi);
-  #if SERIAL_MESHCORE
-    meshcore_send_line(line);
-  #else
-    Serial.println(line);
-  #endif
-#else
-  char payload[80];
-  snprintf(payload, sizeof(payload),
-           "{\"event\":\"drone\",\"from\":\"%s\",\"rssi\":%d}", NODE_ID, rssi);
-  if (mqtt.connected()) mqtt.publish(MQTT_TOPIC, payload);
-#endif
+  report_event('D', "drone", "rssi", rssi);
 }
 #endif
 
@@ -190,6 +214,43 @@ void sniffer_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
            m[0], m[1], m[2], m[3], m[4], m[5]);
   report(mac, p->rx_ctrl.rssi);
 
+#if DETECT_DRONEID || DETECT_ATTACKS
+  lastFrameMs = millis();
+#endif
+
+#if DETECT_ATTACKS
+  // Deauth flood: burglars spray deauth/disassoc frames to blind WiFi cameras.
+  static uint32_t deauthCount = 0, deauthWinStart = 0, lastDeauth = 0, lastRogue = 0;
+  uint8_t fc0 = p->payload[0];
+  if (type == WIFI_PKT_MGMT && (fc0 == 0xC0 || fc0 == 0xA0)) {
+    uint32_t now = millis();
+    if (now - deauthWinStart > DEAUTH_WINDOW_MS) { deauthWinStart = now; deauthCount = 0; }
+    if (++deauthCount >= (uint32_t)DEAUTH_THRESHOLD && now - lastDeauth > ATTACK_COOLDOWN_MS) {
+      lastDeauth = now;
+      report_event('A', "deauth", "count", deauthCount);
+      deauthCount = 0;
+    }
+  }
+  // Rogue AP: a beacon carrying the protected SSID from an unknown BSSID
+  if (PROTECT_SSID[0] && type == WIFI_PKT_MGMT && fc0 == 0x80 && p->rx_ctrl.sig_len > 38) {
+    const uint8_t* ie = p->payload + 36;   // first IE of a beacon is the SSID
+    size_t want = strlen(PROTECT_SSID);
+    if (ie[0] == 0 && ie[1] == want && memcmp(ie + 2, PROTECT_SSID, want) == 0) {
+      const uint8_t* b = p->payload + 16;  // addr3 = BSSID
+      char bssid[18];
+      snprintf(bssid, sizeof(bssid), "%02X:%02X:%02X:%02X:%02X:%02X",
+               b[0], b[1], b[2], b[3], b[4], b[5]);
+      bool known = false;
+      for (unsigned i = 0; i < sizeof(KNOWN_BSSIDS) / sizeof(KNOWN_BSSIDS[0]); i++)
+        if (KNOWN_BSSIDS[i][0] && strcasecmp(KNOWN_BSSIDS[i], bssid) == 0) known = true;
+      if (!known && millis() - lastRogue > ATTACK_COOLDOWN_MS) {
+        lastRogue = millis();
+        report_event('R', "rogue_ap", "rssi", p->rx_ctrl.rssi);
+      }
+    }
+  }
+#endif
+
 #if DETECT_DRONEID
   // Open Drone ID over WiFi rides beacon frames as a vendor-specific IE with
   // the ASD-STAN OUI FA:0B:BC. Walk the beacon's IEs (header 24 + fixed 12).
@@ -222,6 +283,31 @@ class ScanCB : public BLEAdvertisedDeviceCallbacks {
     String mac = dev.getAddress().toString().c_str();
     mac.toUpperCase();
     report(mac.c_str(), dev.getRSSI());
+#if DETECT_DRONEID || DETECT_ATTACKS || DETECT_TRACKERS
+    lastFrameMs = millis();
+#endif
+#if DETECT_TRACKERS
+    // BLE trackers left on the property = someone tagged a vehicle or is
+    // staging theft. Caveat: any Find My device separated from its owner
+    // advertises the same way; expect some benign hits.
+    static uint32_t lastTracker = 0;
+    bool tracker = false;
+    if (dev.haveManufacturerData()) {
+      String md = dev.getManufacturerData();
+      if (md.length() >= 4 && (uint8_t)md[0] == 0x4C && (uint8_t)md[1] == 0x00 &&
+          (uint8_t)md[2] == 0x12 && (uint8_t)md[3] == 0x19)
+        tracker = true;                                  // Apple Find My offline-finding
+    }
+    if (!tracker && dev.isAdvertisingService(BLEUUID((uint16_t)0xFEED)))
+      tracker = true;                                    // Tile
+    if (!tracker && dev.haveServiceData() &&
+        dev.getServiceDataUUID().equals(BLEUUID((uint16_t)0xFD5A)))
+      tracker = true;                                    // Samsung SmartTag
+    if (tracker && millis() - lastTracker > ATTACK_COOLDOWN_MS) {
+      lastTracker = millis();
+      report_event('T', "tracker", "rssi", dev.getRSSI());
+    }
+#endif
 #if DETECT_DRONEID
     // Open Drone ID over BLE: service data on the ASTM 16-bit UUID 0xFFFA
     if (dev.haveServiceData() &&
@@ -294,6 +380,18 @@ void loop() {
   #endif
   }
   mqtt.loop();
+#endif
+
+#if DETECT_ATTACKS
+  // RF silence: a healthy sniffer always hears something; total quiet is
+  // a jamming suspect. Report once per episode, re-armed when frames return.
+  static uint32_t lastSilence = 0;
+  if (SILENCE_SECONDS && lastFrameMs &&
+      millis() - lastFrameMs > SILENCE_SECONDS * 1000UL &&
+      millis() - lastSilence > ATTACK_COOLDOWN_MS) {
+    lastSilence = millis();
+    report_event('Q', "silence", "seconds", (millis() - lastFrameMs) / 1000);
+  }
 #endif
 
 #if SCAN_MODE == SCAN_WIFI

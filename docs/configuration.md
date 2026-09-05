@@ -36,6 +36,11 @@ defaults; everything below is the full reference.
 | `ContactAlertCooldownSeconds` | `60` | per-node contact re-alert suppression; also absorbs Detection Sensor state re-broadcasts |
 | `LightningLabelSeconds` | `120` | after an AS3935 strike event, vibration alerts in this window are labeled as possible thunder and kept out of correlation (0 disables) |
 | `DroneAlertCooldownSeconds` | `300` | per-node drone Remote ID re-alert suppression |
+| `AttackAlertCooldownSeconds` | `120` | RF-attack alerts: deauth, rogue AP, RF silence, mass blackout |
+| `TrackerAlertCooldownSeconds` | `300` | BLE tracker re-alert suppression |
+| `AssetAlertCooldownSeconds` | `3600` | watched-asset departure re-alert suppression |
+| `CasingDays` / `CasingWindowDays` | `3` / `14` | escalate an alerting unknown MAC seen on this many distinct days within the window (0 disables) |
+| `CasingAlertCooldownSeconds` | `86400` | per-MAC casing re-alert suppression |
 
 ## `[Sensors]`
 
@@ -44,6 +49,13 @@ defaults; everything below is the full reference.
 | `ExpectedSensors` | empty | comma-separated node ids the watchdog monitors |
 | `SensorTimeoutSeconds` | `900` | alert if an expected sensor is silent this long |
 | `HeartbeatTopic` | `meshtripwire/heartbeat` | sensors may publish liveness here |
+
+## `[Assets]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `WatchedMacs` | empty | `MAC=name` pairs; alert when a known device *disappears* (vehicle theft, equipment walking off). Only assets seen since monitor start are tracked. |
+| `AssetTimeoutSeconds` | `3600` | unseen this long = missing |
 
 ## `[Arming]`
 

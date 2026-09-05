@@ -23,6 +23,20 @@ assert (ev["type"], ev["event"], ev["sensor"], ev["value"]) == ("drone", "detect
 assert TYPE_REGISTRY[("drone", "detected")]["alertable"] is True
 assert TYPE_REGISTRY[("drone", "detected")]["cooldown_key"] == "DroneAlertCooldownSeconds"
 
+# RF-attack and tracker events from the sniffer
+ev = normalize({"event": "deauth", "from": "gate", "count": 47})
+assert (ev["type"], ev["event"], ev["value"]) == ("attack", "deauth", 47)
+ev = normalize({"event": "rogue_ap", "from": "gate", "rssi": -44})
+assert (ev["type"], ev["event"], ev["value"]) == ("attack", "rogue_ap", -44)
+ev = normalize({"event": "silence", "from": "gate", "seconds": 180})
+assert (ev["type"], ev["event"], ev["value"]) == ("attack", "silence", 180)
+ev = normalize({"event": "tracker", "from": "gate", "rssi": -60})
+assert (ev["type"], ev["event"], ev["value"]) == ("tracker", "detected", -60)
+for key in [("attack", "deauth"), ("attack", "rogue_ap"), ("attack", "silence"),
+            ("attack", "blackout"), ("tracker", "detected"),
+            ("asset", "missing"), ("casing", "detected")]:
+    assert key in TYPE_REGISTRY and TYPE_REGISTRY[key]["alertable"] is True, key
+
 # Not events: MAC sightings (handled by the MAC pipeline), junk, unknown types
 assert normalize({"mac": "AA:BB", "from": "n", "rssi": -60}) is None
 assert normalize({"event": "nope", "from": "x"}) is None

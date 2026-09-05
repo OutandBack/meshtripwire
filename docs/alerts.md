@@ -78,6 +78,11 @@ when there is no Internet at all.
 | Sustained shaking | piezo shake event | `ShakeAlertCooldownSeconds` (per node) |
 | Contact | reed/PIR/beam trigger | `ContactAlertCooldownSeconds` (per node) |
 | Drone | Remote ID broadcast heard by a sniffer | `DroneAlertCooldownSeconds` (per node) |
+| Deauth / rogue AP / RF silence | RF attack seen by a sniffer (`DETECT_ATTACKS`) | `AttackAlertCooldownSeconds` (per node) |
+| Mass blackout | `MassOfflineCount`+ sensors offline at once | `AttackAlertCooldownSeconds` |
+| BLE tracker | AirTag/Tile/SmartTag-style advertisement | `TrackerAlertCooldownSeconds` (per node) |
+| Asset missing | watched MAC unseen past `AssetTimeoutSeconds` | `AssetAlertCooldownSeconds` (per asset) |
+| Casing | alerting unknown MAC seen on `CasingDays` distinct days | `CasingAlertCooldownSeconds` (per MAC) |
 | Sensor offline | watchdog: expected sensor silent | once until it returns |
 | HIGH CONFIDENCE | ≥2 distinct sensor types within the correlation window | `CorrelationCooldownSeconds` |
 

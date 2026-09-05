@@ -26,6 +26,9 @@ event_last_alerts = {} # Stores {(node, type, event): last_alert_unix_ts} for se
 correlation_events = [] # Recent alertable events as (unix_ts, type, node, event) for fusion
 correlation_last_alert = 0.0 # last combined-alert time, for CorrelationCooldownSeconds
 lightning_last_ts = 0.0 # last AS3935 strike, for thunder-labeling vibration alerts
+asset_last_seen = {} # Stores {'MAC': last_ts} for watched assets ([Assets] WatchedMacs)
+asset_missing = set() # Watched MACs currently flagged missing (alert once, until seen)
+mass_offline_alerted = False # blackout escalation latch, resets when sensors return
 manual_armed = None # None = follow schedule; True/False = manual arm/disarm override
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
@@ -246,6 +249,84 @@ def exponential_moving_average(mac, value):
     return smoothed_value
 
 
+def raise_internal_event(type_, event, node, value, meta=None, key_extra=None):
+    """Log + alert a monitor-generated event (asset/casing/blackout).
+
+    Respects arming and the registry cooldown; does not feed correlation —
+    these are meta-detections derived from other events, not new observations.
+    key_extra widens the cooldown key (e.g. per-MAC for casing).
+    """
+    reg = TYPE_REGISTRY[(type_, event)]
+    ev = canonical(type_, node, event, value=value, meta=meta)
+    log_event(ev)
+    logging.info(f"Internal event: {type_}/{event} Node={node} value={value}")
+    if not is_armed():
+        return
+    cooldown = config.getint('Filtering', reg["cooldown_key"], fallback=reg["cooldown_default"])
+    key = (node, type_, event, key_extra)
+    now_ts = time.time()
+    if now_ts - event_last_alerts.get(key, 0) < cooldown:
+        return
+    event_last_alerts[key] = now_ts
+    message = reg["template"].format(node=node, val=value, **(meta or {}))
+    logging.warning(f"{message} Sending alert.")
+    try:
+        send_alert(config, type_, node, message=message, on_result=record_notification)
+    except Exception as e:
+        logging.error(f"Error calling send_alert for {type_} event: {e}")
+
+
+def watched_assets():
+    """{'MAC': name} parsed from [Assets] WatchedMacs = MAC=name, MAC2=name2."""
+    out = {}
+    for part in config.get('Assets', 'WatchedMacs', fallback='').split(','):
+        part = part.strip()
+        if part:
+            mac, _, name = part.partition('=')
+            out[mac.strip().upper()] = name.strip() or mac.strip().upper()
+    return out
+
+
+def check_assets():
+    """Watchdog: alert when a watched asset MAC goes unseen past its timeout.
+
+    Only assets seen at least once this run are tracked — a fresh boot doesn't
+    know what's home. ponytail: persist last-seen if boot blindness matters.
+    """
+    assets = watched_assets()
+    if not assets:
+        return
+    timeout = config.getint('Assets', 'AssetTimeoutSeconds', fallback=3600)
+    now = time.time()
+    for mac, name in assets.items():
+        last = asset_last_seen.get(mac)
+        if last and now - last > timeout and mac not in asset_missing:
+            asset_missing.add(mac)
+            raise_internal_event("asset", "missing", name, int((now - last) / 60),
+                                 meta={"mac": mac})
+
+
+def check_casing(mac, node_id):
+    """After an unknown-MAC alert: escalate if this MAC has appeared on several
+    distinct days — a passer-by doesn't repeat, someone casing the property does."""
+    days_needed = config.getint('Filtering', 'CasingDays', fallback=3)
+    if days_needed <= 0 or not db_cursor:
+        return
+    window = config.getint('Filtering', 'CasingWindowDays', fallback=14)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=window)).isoformat()
+    try:
+        days = db_cursor.execute(
+            "SELECT COUNT(DISTINCT substr(ts, 1, 10)) FROM events "
+            "WHERE type='wireless_presence' AND ts > ? AND meta LIKE ?",
+            (cutoff, f'%\"mac\": \"{mac}\"%')).fetchone()[0]
+    except sqlite3.Error as e:
+        logging.error(f"Casing query failed for {mac}: {e}")
+        return
+    if days >= days_needed:
+        raise_internal_event("casing", "detected", node_id, days,
+                             meta={"mac": mac}, key_extra=mac)
+
+
 def correlation_note(ev_type, node, event_name):
     """Feed one alertable event into the correlation buffer; escalate when
     distinct sensor types cluster inside the window.
@@ -368,6 +449,11 @@ def process_detection(detection_data):
     # Check against whitelist
     status = "whitelisted" if mac in whitelist else "unknown"
 
+    # Any sighting of a watched asset proves it's still home
+    if mac in watched_assets():
+        asset_last_seen[mac] = time.time()
+        asset_missing.discard(mac)
+
     # Use the payload's GPS fix if present, else fall back to static node location
     lat = detection_data.get("lat")
     lon = detection_data.get("lon")
@@ -470,6 +556,16 @@ def check_sensors():
             sensor_offline.discard(node)
             logging.info(f"Sensor '{node}' back online.")
 
+    # Several sensors dropping together is jamming or a power cut, not a battery
+    global mass_offline_alerted
+    mass_count = config.getint('Sensors', 'MassOfflineCount', fallback=2)
+    if mass_count > 0:
+        if len(sensor_offline) >= mass_count and not mass_offline_alerted:
+            mass_offline_alerted = True
+            raise_internal_event("attack", "blackout", "base", len(sensor_offline))
+        elif len(sensor_offline) < mass_count:
+            mass_offline_alerted = False
+
 
 def trigger_alert_if_needed(mac, node_id, status):
     """Sends an alert if the detection status is 'unknown', gated by arming, dwell,
@@ -494,6 +590,7 @@ def trigger_alert_if_needed(mac, node_id, status):
         send_alert(config, mac, node_id, on_result=record_notification) # send_alert handles its own errors
     except Exception as e:
         logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
+    check_casing(mac, node_id)
 
 
 def handle_sensor_event(payload_bytes):
@@ -748,7 +845,8 @@ def main():
     # Sensor watchdog runs on its own timer — silence produces no messages, so it
     # can't be driven by the message loop. Only started if sensors are expected.
     stop_watchdog = threading.Event()
-    if config.get('Sensors', 'ExpectedSensors', fallback='').strip():
+    if (config.get('Sensors', 'ExpectedSensors', fallback='').strip()
+            or config.get('Assets', 'WatchedMacs', fallback='').strip()):
         timeout = config.getint('Sensors', 'SensorTimeoutSeconds', fallback=900)
         interval = max(30, timeout // 4)
 
@@ -756,6 +854,7 @@ def main():
             while not stop_watchdog.wait(interval):
                 try:
                     check_sensors()
+                    check_assets()
                 except Exception as e:
                     logging.error(f"Sensor watchdog error: {e}")
 

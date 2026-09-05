@@ -39,6 +39,13 @@ assert json.loads(out) == {'event': 'lightning', 'from': 'gate', 'km': 12}, out
 out = payload_for({'decoded': {'text': 'D,-58'}, 'fromId': '!aabb'},
                   NODES, sensor_map={'!aabb': 'gate'})
 assert json.loads(out) == {'event': 'drone', 'from': 'gate', 'rssi': -58}, out
+for line, expect in [('A,47', {'event': 'deauth', 'from': 'gate', 'count': 47}),
+                     ('R,-44', {'event': 'rogue_ap', 'from': 'gate', 'rssi': -44}),
+                     ('Q,180', {'event': 'silence', 'from': 'gate', 'seconds': 180}),
+                     ('T,-60', {'event': 'tracker', 'from': 'gate', 'rssi': -60})]:
+    out = payload_for({'decoded': {'text': line}, 'fromId': '!aabb'},
+                      NODES, sensor_map={'!aabb': 'gate'})
+    assert json.loads(out) == expect, (line, out)
 # Malformed value is not an event (falls through; no rssi -> skip)
 assert payload_for({'decoded': {'text': 'V,notint'}}, NODES) is None
 assert payload_for({'decoded': {'text': 'K,'}, 'fromId': '!aabb'}, NODES) is None

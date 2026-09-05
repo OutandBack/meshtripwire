@@ -26,7 +26,11 @@ all the logic. Mix whatever fits your site.
 | Mesh-device presence | people carrying LoRa mesh nodes | the base station's USB Meshtastic node | `mqtt/serial_bridge.py` |
 
 Classification happens on the sensor (a knock is distinguished from climbing on
-the ESP32 itself), so events are a few bytes and survive a LoRa link. Details,
+the ESP32 itself), so events are a few bytes and survive a LoRa link. The same
+hardware also detects things done *to* the system and patterns across time:
+WiFi deauth attacks, rogue APs, RF-silence jamming, BLE trackers
+(AirTag-style), watched-asset departure (a known device vanishing), repeat
+visitors (casing), and mass sensor blackout. Details,
 wiring, and calibration for each: [`firmware/README.md`](firmware/README.md).
 
 ## Architecture

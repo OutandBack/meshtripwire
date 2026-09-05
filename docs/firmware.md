@@ -1,6 +1,6 @@
 # Firmware
 
-Three Arduino sketches under `firmware/`, all sharing the same conventions:
+Four Arduino sketches under `firmware/`, all sharing the same conventions:
 a config block at the top of the file, an `OUTPUT_SERIAL` switch between
 WiFi/MQTT and serial→LoRa backhaul, and a `DEBUG_PRINT` calibration readout
 (automatically compiled out in serial mode so debug lines can never leak onto
@@ -29,6 +29,12 @@ there.
 Key knobs: `RSSI_MIN` (ignore weak frames), `COOLDOWN_MS` (per-MAC re-publish
 suppression), on-device `WHITELIST[]` (known MACs are never transmitted; they
 would waste LoRa airtime).
+
+**RF attacks** (`DETECT_ATTACKS 1`, WiFi mode): deauth-flood counting
+(`DEAUTH_THRESHOLD` per window), rogue-AP detection for `PROTECT_SSID` against
+`KNOWN_BSSIDS[]`, and RF-silence reporting (`SILENCE_SECONDS`).
+**BLE trackers** (`DETECT_TRACKERS 1`, BLE mode): Apple Find My
+offline-finding, Tile, and SmartTag advertisement signatures.
 
 **Drone Remote ID** (`DETECT_DRONEID 1`): the same sniffer also reports drone
 Remote ID broadcasts (ASTM F3411 / Open Drone ID), the public identification

@@ -33,6 +33,35 @@ TYPE_REGISTRY = {
         "cooldown_key": "DroneAlertCooldownSeconds", "cooldown_default": 300,
         "template": "ALERT: Drone Remote ID broadcast near node {node} ({val} dBm).",
         "alertable": True},
+    # RF-attack class: things done TO the sensor net, not near it
+    ("attack", "deauth"): {
+        "cooldown_key": "AttackAlertCooldownSeconds", "cooldown_default": 120,
+        "template": "ALERT: WiFi deauth attack near node {node} ({val} frames).",
+        "alertable": True},
+    ("attack", "rogue_ap"): {
+        "cooldown_key": "AttackAlertCooldownSeconds", "cooldown_default": 120,
+        "template": "ALERT: Rogue AP broadcasting the protected SSID near node {node} ({val} dBm).",
+        "alertable": True},
+    ("attack", "silence"): {
+        "cooldown_key": "AttackAlertCooldownSeconds", "cooldown_default": 120,
+        "template": "ALERT: RF silence at node {node} ({val}s without frames) - possible jamming.",
+        "alertable": True},
+    ("attack", "blackout"): {
+        "cooldown_key": "AttackAlertCooldownSeconds", "cooldown_default": 120,
+        "template": "ALERT: {val} sensors offline simultaneously - possible jamming or power loss.",
+        "alertable": True},
+    ("tracker", "detected"): {
+        "cooldown_key": "TrackerAlertCooldownSeconds", "cooldown_default": 300,
+        "template": "ALERT: BLE tracker (AirTag/Tile-style) near node {node} ({val} dBm).",
+        "alertable": True},
+    ("asset", "missing"): {
+        "cooldown_key": "AssetAlertCooldownSeconds", "cooldown_default": 3600,
+        "template": "ALERT: Watched asset '{node}' not seen for {val} minutes.",
+        "alertable": True},
+    ("casing", "detected"): {
+        "cooldown_key": "CasingAlertCooldownSeconds", "cooldown_default": 86400,
+        "template": "ALERT: Repeat visitor at node {node}: {mac} seen on {val} different days.",
+        "alertable": True},
     # Informational: logged so vibration alerts can be thunder-labeled; never alerts
     ("weather", "lightning"): {
         "cooldown_key": "AlertCooldownSeconds", "cooldown_default": 300,
@@ -47,6 +76,10 @@ _LEGACY_EVENTS = {
     "shake": ("vibration", "shake", "piezo", "hits"),
     "lightning": ("weather", "lightning", "as3935", "km"),
     "drone": ("drone", "detected", "remoteid", "rssi"),
+    "deauth": ("attack", "deauth", "esp32", "count"),
+    "rogue_ap": ("attack", "rogue_ap", "esp32", "rssi"),
+    "silence": ("attack", "silence", "esp32", "seconds"),
+    "tracker": ("tracker", "detected", "ble", "rssi"),
 }
 
 _CANONICAL_KEYS = {"v", "type", "node", "sensor", "event", "value"}

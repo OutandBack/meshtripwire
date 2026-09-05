@@ -124,6 +124,10 @@
   .badge.contact { color: var(--contact); }
   .badge.wireless_presence { color: var(--wireless); }
   .badge.drone { color: var(--drone); }
+  .badge.attack { color: var(--alarm); }
+  .badge.tracker { color: var(--drone); }
+  .badge.asset { color: var(--vehicle); }
+  .badge.casing { color: var(--vibration); }
   #feed .detail { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #feed .detail b { color: var(--text); font-weight: 600; }
 
@@ -246,7 +250,13 @@ function detail(e) {
   if (e.event === 'knock') return `peak <b>${esc(e.value ?? '?')}</b>${thunder}`;
   if (e.type === 'vehicle') return `magnitude <b>${esc(e.value ?? '?')}</b>`;
   if (e.type === 'weather') return `<b>${esc(e.value ?? '?')}</b> km`;
-  if (e.type === 'drone') return `<b>${esc(e.value ?? '?')}</b> dBm`;
+  if (e.type === 'drone' || e.type === 'tracker') return `<b>${esc(e.value ?? '?')}</b> dBm`;
+  if (e.event === 'deauth') return `<b>${esc(e.value ?? '?')}</b> frames`;
+  if (e.event === 'rogue_ap') return `<b>${esc(e.value ?? '?')}</b> dBm`;
+  if (e.event === 'silence') return `quiet <b>${esc(e.value ?? '?')}</b>s`;
+  if (e.event === 'blackout') return `<b>${esc(e.value ?? '?')}</b> sensors offline`;
+  if (e.type === 'asset') return `gone <b>${esc(e.value ?? '?')}</b> min`;
+  if (e.type === 'casing') return `<b>${esc((e.meta || {}).mac || '?')}</b> on ${esc(e.value ?? '?')} days`;
   return esc(e.event);
 }
 

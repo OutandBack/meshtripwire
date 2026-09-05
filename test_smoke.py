@@ -198,6 +198,23 @@ with mock.patch.object(monitor, 'send_alert') as sa:
 monitor.correlation_events.clear()
 monitor.event_last_alerts.clear()
 
+# Mass offline: several sensors dropping together escalates as a possible attack
+monitor.config.set('Sensors', 'ExpectedSensors', 'gate,fence,drive')
+monitor.config.set('Sensors', 'SensorTimeoutSeconds', '900')
+monitor.config.set('Sensors', 'MassOfflineCount', '2')
+monitor.sensor_offline.clear()
+monitor.sensor_last_seen.clear()
+monitor.mass_offline_alerted = False
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.check_sensors()                       # all three never seen -> offline
+    msgs = [c.kwargs['message'] for c in sa.call_args_list]
+    assert any('simultaneously' in m for m in msgs), msgs
+    n = sa.call_count
+    monitor.check_sensors()
+    assert sa.call_count == n                     # escalation fires once
+monitor.mass_offline_alerted = False
+monitor.sensor_offline.clear()
+
 # Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
 monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
 monitor.config.set('Sensors', 'SensorTimeoutSeconds', '900')
@@ -299,6 +316,43 @@ with tempfile.TemporaryDirectory() as tmp:
     monitor.backfill_detections()   # idempotent: second run adds nothing
     assert monitor.db_cursor.execute(
         "SELECT COUNT(*) FROM events WHERE type='wireless_presence'").fetchone()[0] == 1
+
+    # RF-attack events ride the normal sensor-event path
+    monitor.correlation_events.clear()
+    monitor.correlation_last_alert = time.time()   # hold combined alerts here
+    with mock.patch.object(monitor, 'send_alert') as sa:
+        assert monitor.handle_sensor_event(b'{"event":"deauth","from":"gate","count":47}') is True
+        assert sa.call_count == 1 and 'deauth' in sa.call_args.kwargs['message'].lower()
+
+    # Asset departure: a watched MAC going unseen raises one alert until it returns
+    monitor.config.set('Assets', 'WatchedMacs', 'CA:FE:00:00:00:01=truck')
+    monitor.config.set('Assets', 'AssetTimeoutSeconds', '600')
+    monitor.asset_last_seen['CA:FE:00:00:00:01'] = time.time() - 601
+    with mock.patch.object(monitor, 'send_alert') as sa:
+        monitor.check_assets()
+        assert sa.call_count == 1 and 'truck' in sa.call_args.kwargs['message']
+        monitor.check_assets()
+        assert sa.call_count == 1                  # once until it returns
+    monitor.process_detection(dict(parsed, mac='CA:FE:00:00:00:01'))
+    assert 'CA:FE:00:00:00:01' not in monitor.asset_missing
+    monitor.config.set('Assets', 'WatchedMacs', '')
+
+    # Casing: an unknown MAC seen on several distinct days escalates once
+    monitor.config.set('Filtering', 'CasingDays', '3')
+    for d in (1, 3, 5):
+        monitor.db_cursor.execute(
+            "INSERT INTO events (ts, node, type, event, meta) VALUES "
+            "(?, 'gate', 'wireless_presence', 'detected', ?)",
+            ((datetime.now(timezone.utc) - timedelta(days=d)).isoformat(),
+             '{"mac": "CA:5E:00:00:00:09", "status": "unknown"}'))
+    monitor.db_conn.commit()
+    with mock.patch.object(monitor, 'send_alert') as sa:
+        monitor.check_casing('CA:5E:00:00:00:09', 'gate')
+        assert sa.call_count == 1 and 'CA:5E:00:00:00:09' in sa.call_args.kwargs['message']
+        monitor.check_casing('CA:5E:00:00:00:09', 'gate')  # cooldown holds
+        assert sa.call_count == 1
+        monitor.check_casing('AA:AA:00:00:00:01', 'gate')  # no prior days: nothing
+        assert sa.call_count == 1
 
     # MAC detections also produce a wireless_presence event row with meta
     monitor.process_detection(dict(parsed, lat=None, lon=None))
