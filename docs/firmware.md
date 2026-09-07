@@ -35,6 +35,11 @@ would waste LoRa airtime).
 `KNOWN_BSSIDS[]`, and RF-silence reporting (`SILENCE_SECONDS`).
 **BLE trackers** (`DETECT_TRACKERS 1`, BLE mode): Apple Find My
 offline-finding, Tile, and SmartTag advertisement signatures.
+Tracker and drone service data rides the BLE scan **response**, so these
+features switch the node to active scanning with a 50/50 window/interval
+split (the split matters: the radio needs the idle gap to send the scan
+request and catch the response). Bench-validated against a live Samsung
+SmartTag (service UUID `fd5a`) end to end.
 
 **Drone Remote ID** (`DETECT_DRONEID 1`): the same sniffer also reports drone
 Remote ID broadcasts (ASTM F3411 / Open Drone ID), the public identification
@@ -55,6 +60,13 @@ smallest vehicle. `BASELINE_ALPHA` controls drift absorption; a shift
 sustained past `RESEED_MS` (a car that parked) becomes the new baseline
 automatically.
 
+**Bench-validated** on an ESP32-C3 + GY-271: `mag` idles near 5960 (Earth's
+field, ~0.5 gauss at ~12000 LSB/gauss), with a `delta` noise floor around 50.
+A ferrous object waved by hand a few cm away produces `delta` ~200; a magnet
+held close pegs it into the thousands. The `TRIGGER_LSB = 300` default is sized
+for a real vehicle at 2-5 m, not a handheld object, so a bench check either
+needs a strong magnet up close or a temporarily lowered threshold (~120).
+
 ## Vibration sensor (`piezo_vibration`)
 
 **Wiring**: piezo disc between `PIEZO_PIN` (default GPIO3) and GND with a
@@ -63,6 +75,13 @@ knock-energy spikes safely; add a 3.3 V zener across large discs on
 hard-struck surfaces. Mount the disc rigidly (epoxy/screw clamp); a loose
 disc reads as noise. On a fence, one disc per panel-run carries several meters
 of mesh.
+
+The bleed resistor is **required**, not optional: a piezo is a capacitor with
+no DC path, so without a resistor to ground the input floats to mid-scale and
+reads only mains hum. Any value from ~100 kΩ to 2 MΩ works. The chip's
+internal pulldown is not a substitute on the ESP32-C3, because `analogRead()`
+disables the internal pull on each call (bench-confirmed: the pin floated and
+taps were indistinguishable from idle until a physical resistor was fitted).
 
 **Calibration**: flash with `DEBUG_PRINT` on and watch the once-per-second
 `env_max/baseline/hits_in_window` line. Knock, shake, and let the wind blow;

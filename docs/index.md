@@ -75,8 +75,8 @@ unit-tested against the documented protocol but has not touched hardware.
 | MAC pipeline (RSSI filter, EMA, whitelist, dwell) | shipped | unit + smoke suites; live stack |
 | ESP32 BLE sniffer | shipped | **bench-tested** on ESP32-C3 SuperMini, live BLE captures |
 | ESP32 WiFi sniffer | shipped | compile-verified; same code path as BLE |
-| Vehicle sensor (QMC5883L) | shipped | compile-verified; awaiting bench calibration |
-| Vibration sensor (piezo knock/shake) | shipped | compile-verified; awaiting bench calibration |
+| Vehicle sensor (QMC5883L) | shipped | **bench-tested** on ESP32-C3 + GY-271: I2C link, all axes, and vehicle events confirmed; field calibration pending |
+| Vibration sensor (piezo knock/shake/glass) | shipped | compile-verified; **needs a physical bleed resistor** (see Firmware); bench calibration pending |
 | Contact sensors via Meshtastic Detection Sensor module | shipped | mock-tested against the documented module behavior |
 | Lightning sensor (AS3935) + thunder labeling | shipped | labeling unit-tested; firmware compile-verified, awaiting hardware |
 | Drone Remote ID detection (sniffer compile flag) | shipped | pipeline unit-tested; frame parsing compile-verified, awaiting a live Remote ID broadcast |
