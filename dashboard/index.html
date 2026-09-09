@@ -166,6 +166,13 @@
   #notif .fail { color: var(--alarm); }
   #notif .msg { color: var(--dim); }
   #notif li.failed .msg { color: var(--alarm); }
+  #notif-more {
+    margin: 8px 0; background: none; border: 1px solid var(--line);
+    border-radius: 3px; color: var(--dim); font-family: var(--mono);
+    font-size: 11px; padding: 3px 12px; cursor: pointer;
+  }
+  #notif-more:hover { color: var(--text); border-color: var(--dim); }
+  #notif-more:focus-visible { outline: 2px solid var(--contact); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -188,6 +195,7 @@
     <table id="nodes"><tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr></table>
     <h2>Notification log</h2>
     <ul id="notif"></ul>
+    <button id="notif-more" type="button" hidden>load older</button>
   </div>
   <div>
     <div class="controls">
@@ -208,6 +216,7 @@
 const typeColor = t => getComputedStyle(document.documentElement)
   .getPropertyValue('--' + (t === 'wireless_presence' ? 'wireless' : t)).trim() || '#7A8F81';
 let events = [], nodes = [], notifs = [];
+let notifLimit = 40;  // grows on "load older"; newest-anchored so live refresh keeps depth
 
 // Theme: 'night' = red-flashlight mode, persisted per browser
 const themeBtn = document.getElementById('theme');
@@ -326,12 +335,14 @@ function render() {
     `<span>${esc(e.node)}</span><span class="detail">${detail(e)}</span></li>`
   ).join('') || '<li class="empty">Nothing matches this filter.</li>';
 
-  document.getElementById('notif').innerHTML = notifs.slice(0, 40).map(n =>
+  document.getElementById('notif').innerHTML = notifs.map(n =>
     `<li class="${n.ok ? '' : 'failed'}"><span class="t">${hhmm(n.ts)}</span>` +
     `<span class="${n.ok ? 'ok' : 'fail'}">${n.ok ? '✓' : '✗'}</span>` +
     `<span>${esc(n.channel)}</span>` +
     `<span class="msg" title="${esc(n.error || n.message || '')}">${esc(n.ok ? (n.message || '') : (n.error || 'failed'))}</span></li>`
   ).join('') || '<li class="empty">No alerts dispatched yet.</li>';
+  // more rows likely exist only when the fetch filled to the current limit
+  document.getElementById('notif-more').hidden = notifs.length < notifLimit;
 
   drawChart();
 }
@@ -341,7 +352,7 @@ async function refresh() {
     [events, nodes, notifs] = await Promise.all([
       fetch('/api/events?limit=500').then(r => r.json()),
       fetch('/api/nodes').then(r => r.json()),
-      fetch('/api/notifications?limit=40').then(r => r.json()),
+      fetch('/api/notifications?limit=' + notifLimit).then(r => r.json()),
     ]);
     const live = document.getElementById('live');
     live.textContent = 'updated ' + new Date().toTimeString().slice(0, 8);
@@ -353,6 +364,10 @@ async function refresh() {
   }
 }
 document.getElementById('focus').addEventListener('change', render);
+document.getElementById('notif-more').addEventListener('click', () => {
+  notifLimit += 40;
+  refresh();
+});
 refresh();
 setInterval(refresh, 5000);
 </script>

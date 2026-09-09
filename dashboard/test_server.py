@@ -63,6 +63,10 @@ ns = query_notifications(conn, limit=1)
 assert ns == [{'ts': '2026-08-27T10:00:01+00:00', 'channel': 'twilio',
                'target': '+1987654321', 'ok': 0, 'error': 'timeout',
                'message': 'ALERT: Vehicle detected'}], ns
+# offset pages into older rows
+older = query_notifications(conn, limit=1, offset=1)
+assert older[0]['channel'] == 'ntfy' and older[0]['ts'] == '2026-08-27T10:00:00+00:00', older
+assert query_notifications(conn, limit=1, offset=5) == []
 
 # Database without an events table yet (monitor never ran): empty, no errors
 bare = sqlite3.connect(':memory:')

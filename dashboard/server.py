@@ -10,7 +10,7 @@ Endpoints:
     /                  the dashboard page
     /api/events?limit         recent events, newest first (default 300)
     /api/nodes                per-node last-seen and event count
-    /api/notifications?limit  alert delivery attempts per channel (default 100)
+    /api/notifications?limit&offset  alert delivery attempts per channel (default 100)
     /history                  full-history search page
     /api/search?q&type&node&event&from&to&limit&offset   filtered event search
     /api/facets               distinct types/nodes/events for the filters
@@ -38,12 +38,12 @@ def query_nodes(conn):
     return [{'node': n, 'last_seen': ts, 'events': c} for n, ts, c in rows]
 
 
-def query_notifications(conn, limit=100):
-    """Recent notification attempts, newest first."""
+def query_notifications(conn, limit=100, offset=0):
+    """Notification attempts, newest first, with offset paging for 'load older'."""
     try:
         rows = conn.execute(
             "SELECT ts, channel, target, ok, error, message FROM notifications "
-            "ORDER BY ts DESC LIMIT ?", (int(limit),)).fetchall()
+            "ORDER BY ts DESC LIMIT ? OFFSET ?", (int(limit), int(offset))).fetchall()
     except sqlite3.OperationalError:
         return []  # monitor hasn't created the notifications table yet
     return [{'ts': ts, 'channel': ch, 'target': tg, 'ok': ok, 'error': err,
@@ -119,8 +119,9 @@ def make_handler(db_path):
                     elif url.path == '/api/nodes':
                         self._json(query_nodes(conn))
                     elif url.path == '/api/notifications':
-                        limit = parse_qs(url.query).get('limit', ['100'])[0]
-                        self._json(query_notifications(conn, limit))
+                        q = parse_qs(url.query)
+                        self._json(query_notifications(
+                            conn, q.get('limit', ['100'])[0], q.get('offset', ['0'])[0]))
                     elif url.path == '/api/search':
                         p = {k: v[0] for k, v in parse_qs(url.query).items()}
                         self._json(query_search(
