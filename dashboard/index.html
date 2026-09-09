@@ -88,6 +88,8 @@
     font-size: 10px; color: var(--dim); margin-top: 4px;
   }
   .axis .marks { display: flex; justify-content: space-between; padding: 0 2px; }
+  .chart-more { font-family: var(--mono); font-size: 11px; color: var(--dim);
+                padding: 6px 12px; border-top: 1px solid var(--line); }
 
   /* left column takes 40% on wide screens so notification messages
      get the room the event feed doesn't need */
@@ -286,7 +288,11 @@ function drawChart() {
     chart.innerHTML = '<div class="empty">No events in the last 24 hours.</div>';
     return;
   }
-  for (const [node, evs] of byNode) {
+  // Cap rows so a large deployment stays readable; byNode is ordered by most
+  // recent activity (events arrive newest-first), so we keep the liveliest.
+  const MAX_ROWS = 14;
+  const hidden = byNode.size - MAX_ROWS;
+  for (const [node, evs] of [...byNode].slice(0, MAX_ROWS)) {
     const row = document.createElement('div');
     row.className = 'strip';
     row.innerHTML = `<span class="name">${esc(node)}</span>`;
@@ -305,6 +311,12 @@ function drawChart() {
       const inset = e.type === 'wireless_presence' ? h * 0.3 : h * 0.12;
       ctx.moveTo(x, inset); ctx.lineTo(x, h - inset); ctx.stroke();
     }
+  }
+  if (hidden > 0) {
+    const note = document.createElement('div');
+    note.className = 'chart-more';
+    note.textContent = `+${hidden} more node${hidden === 1 ? '' : 's'} — search all history`;
+    chart.appendChild(note);
   }
 }
 
