@@ -1,6 +1,15 @@
+# Cap container logs so a long deployment can't fill the disk (json-file
+# defaults to unbounded). 10 MB x 3 files per service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   mosquitto:
     image: eclipse-mosquitto:2
+    logging: *default-logging
     ports:
       # Host port for LAN sensors/bridges; override if 1883 is taken (MQTT_PORT=1884 docker compose up)
       - "${MQTT_PORT:-1883}:1883"
@@ -10,6 +19,7 @@ services:
 
   monitor:
     build: .
+    logging: *default-logging
     depends_on:
       - mosquitto
     environment:
@@ -22,6 +32,7 @@ services:
   dashboard:
     build: .
     command: ["python", "-m", "dashboard.server"]
+    logging: *default-logging
     ports:
       - "8080:8080"
     volumes:
