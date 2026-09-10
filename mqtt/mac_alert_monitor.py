@@ -21,7 +21,9 @@ node_locations = {}
 last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time alerting
 sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
-sensor_offline = set() # Nodes currently flagged offline (alert once, until they return)
+sensor_offline = set() # Nodes observed offline (silence past timeout), independent of arming
+sensor_offline_notified = set() # Offline nodes already alerted; separates observed from notified fault state
+monitor_start_ts = time.time() # boot grace: never-seen expected sensors measured from here, not epoch 0
 event_last_alerts = {} # Stores {(node, type, event): last_alert_unix_ts} for sensor-event cooldowns
 correlation_events = [] # Recent alertable events as (unix_ts, type, node, event) for fusion
 correlation_last_alert = 0.0 # last combined-alert time, for CorrelationCooldownSeconds
@@ -34,6 +36,7 @@ manual_armed = None # None = follow schedule; True/False = manual arm/disarm ove
 manual_armed_ts = 0.0 # when the override was set, for ControlOverrideTTL expiry
 db_conn = None
 db_cursor = None
+db_lock = threading.RLock() # serializes the shared cursor across MQTT/watchdog/committer/worker threads
 last_db_commit = 0.0 # for the time-based commit that keeps dashboard reads fresh
 
 # --- Configuration Loading ---
@@ -201,12 +204,13 @@ def prune_old_detections():
     # Timestamps are UTC isoformat, so lexical comparison against a same-format cutoff works
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
-        db_cursor.execute("DELETE FROM detections WHERE timestamp < ?", (cutoff,))
-        if db_cursor.rowcount > 0:
-            logging.info(f"Pruned {db_cursor.rowcount} detection(s) older than {days} day(s).")
-        db_cursor.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
-        db_cursor.execute("DELETE FROM notifications WHERE ts < ?", (cutoff,))
-        db_conn.commit()
+        with db_lock:
+            db_cursor.execute("DELETE FROM detections WHERE timestamp < ?", (cutoff,))
+            if db_cursor.rowcount > 0:
+                logging.info(f"Pruned {db_cursor.rowcount} detection(s) older than {days} day(s).")
+            db_cursor.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+            db_cursor.execute("DELETE FROM notifications WHERE ts < ?", (cutoff,))
+            db_conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Failed to prune old detections: {e}")
 
@@ -262,12 +266,12 @@ def raise_internal_event(type_, event, node, value, meta=None, key_extra=None):
     log_event(ev)
     logging.info(f"Internal event: {type_}/{event} Node={node} value={value}")
     if not is_armed():
-        return
+        return False
     cooldown = config.getint('Filtering', reg["cooldown_key"], fallback=reg["cooldown_default"])
     key = (node, type_, event, key_extra)
     now_ts = time.time()
     if now_ts - event_last_alerts.get(key, 0) < cooldown:
-        return
+        return False
     event_last_alerts[key] = now_ts
     message = reg["template"].format(node=node, val=value, **(meta or {}))
     logging.warning(f"{message} Sending alert.")
@@ -275,6 +279,7 @@ def raise_internal_event(type_, event, node, value, meta=None, key_extra=None):
         send_alert(config, type_, node, message=message, on_result=record_notification)
     except Exception as e:
         logging.error(f"Error calling send_alert for {type_} event: {e}")
+    return True  # so callers latch a fault only once it has actually been alerted
 
 
 def watched_assets():
@@ -302,9 +307,11 @@ def check_assets():
     for mac, name in assets.items():
         last = asset_last_seen.get(mac)
         if last and now - last > timeout and mac not in asset_missing:
-            asset_missing.add(mac)
-            raise_internal_event("asset", "missing", name, int((now - last) / 60),
-                                 meta={"mac": mac})
+            # Latch only once the alert actually goes out, so a departure noticed
+            # while disarmed still alerts on the first armed run.
+            if raise_internal_event("asset", "missing", name, int((now - last) / 60),
+                                    meta={"mac": mac}):
+                asset_missing.add(mac)
 
 
 def check_casing(mac, node_id):
@@ -316,10 +323,11 @@ def check_casing(mac, node_id):
     window = config.getint('Filtering', 'CasingWindowDays', fallback=14)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=window)).isoformat()
     try:
-        days = db_cursor.execute(
-            "SELECT COUNT(DISTINCT substr(ts, 1, 10)) FROM events "
-            "WHERE type='wireless_presence' AND ts > ? AND meta LIKE ?",
-            (cutoff, f'%\"mac\": \"{mac}\"%')).fetchone()[0]
+        with db_lock:
+            days = db_cursor.execute(
+                "SELECT COUNT(DISTINCT substr(ts, 1, 10)) FROM events "
+                "WHERE type='wireless_presence' AND ts > ? AND meta LIKE ?",
+                (cutoff, f'%\"mac\": \"{mac}\"%')).fetchone()[0]
     except sqlite3.Error as e:
         logging.error(f"Casing query failed for {mac}: {e}")
         return
@@ -381,12 +389,13 @@ def log_event(ev):
         logging.warning(f"Database connection not available, skipping event log for {ev['type']}.")
         return
     try:
-        db_cursor.execute(
-            "INSERT INTO events (ts, node, type, sensor, event, value, lat, lon, meta) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (ev["ts"], ev["node"], ev["type"], ev["sensor"], ev["event"],
-             float(ev["value"]) if ev["value"] is not None else None,
-             ev["meta"].get("lat"), ev["meta"].get("lon"), json.dumps(ev["meta"])))
+        with db_lock:
+            db_cursor.execute(
+                "INSERT INTO events (ts, node, type, sensor, event, value, lat, lon, meta) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ev["ts"], ev["node"], ev["type"], ev["sensor"], ev["event"],
+                 float(ev["value"]) if ev["value"] is not None else None,
+                 ev["meta"].get("lat"), ev["meta"].get("lon"), json.dumps(ev["meta"])))
     except sqlite3.Error as e:
         logging.error(f"Failed to insert event for {ev['node']}: {e}")
 
@@ -564,10 +573,15 @@ def check_sensors():
     timeout = config.getint('Sensors', 'SensorTimeoutSeconds', fallback=900)
     now = time.time()
     for node in expected:
-        silent = now - sensor_last_seen.get(node, 0)
-        if silent > timeout and node not in sensor_offline:
-            sensor_offline.add(node)
-            if is_armed():
+        # A never-seen expected sensor is measured from monitor start, not epoch
+        # zero, so it gets a real boot grace instead of a nonsensical silence.
+        silent = now - sensor_last_seen.get(node, monitor_start_ts)
+        if silent > timeout:
+            sensor_offline.add(node)  # observed offline, independent of arming
+            # Notify once, and only while armed — a fault observed while disarmed
+            # is reconciled (alerted) on the first armed run, not swallowed.
+            if is_armed() and node not in sensor_offline_notified:
+                sensor_offline_notified.add(node)
                 logging.warning(f"Sensor '{node}' offline: no data for {int(silent)}s.")
                 try:
                     send_alert(config, node, node,
@@ -575,17 +589,21 @@ def check_sensors():
                                on_result=record_notification)
                 except Exception as e:
                     logging.error(f"Error sending sensor-offline alert for {node}: {e}")
-        elif silent <= timeout and node in sensor_offline:
+        else:
+            if node in sensor_offline:
+                logging.info(f"Sensor '{node}' back online.")
             sensor_offline.discard(node)
-            logging.info(f"Sensor '{node}' back online.")
+            sensor_offline_notified.discard(node)
 
     # Several sensors dropping together is jamming or a power cut, not a battery
     global mass_offline_alerted
     mass_count = config.getint('Sensors', 'MassOfflineCount', fallback=2)
     if mass_count > 0:
         if len(sensor_offline) >= mass_count and not mass_offline_alerted:
-            mass_offline_alerted = True
-            raise_internal_event("attack", "blackout", "base", len(sensor_offline))
+            # Latch only when the alert actually fires (armed, not cooled down),
+            # so a blackout seen while disarmed still alerts once armed.
+            if raise_internal_event("attack", "blackout", "base", len(sensor_offline)):
+                mass_offline_alerted = True
         elif len(sensor_offline) < mass_count:
             mass_offline_alerted = False
 
@@ -686,11 +704,12 @@ def record_notification(channel, target, ok, error, message):
     if not (db_cursor and db_conn):
         return
     try:
-        db_cursor.execute(
-            "INSERT INTO notifications (ts, channel, target, ok, error, message) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), channel, target,
-             1 if ok else 0, error, message))
+        with db_lock:
+            db_cursor.execute(
+                "INSERT INTO notifications (ts, channel, target, ok, error, message) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (datetime.now(timezone.utc).isoformat(), channel, target,
+                 1 if ok else 0, error, message))
     except sqlite3.Error as e:
         logging.error(f"Failed to log notification ({channel}): {e}")
 
@@ -704,7 +723,8 @@ def maybe_commit():
     global last_db_commit
     if db_conn and time.time() - last_db_commit > 5:
         try:
-            db_conn.commit()
+            with db_lock:
+                db_conn.commit()
             last_db_commit = time.time()
         except sqlite3.Error as e:
             logging.error(f"Failed time-based commit: {e}")
@@ -819,8 +839,10 @@ def handle_heartbeat(payload_bytes):
 # --- Main Execution ---
 
 def main():
-    """Main execution function."""
-    global config # Ensure main uses the global config
+    """Main execution function. Returns a process exit code (0 ok, 1 on failure)."""
+    global config, monitor_start_ts # Ensure main uses the global config
+
+    monitor_start_ts = time.time() # boot grace baseline for the sensor watchdog
 
     # Load configuration first (raises SystemExit if missing/unreadable)
     config = load_app_config()
@@ -874,10 +896,12 @@ def main():
             except Exception as e:
                 logging.error(f"Dark-vehicle check error: {e}")
 
-    threading.Thread(target=committer, daemon=True).start()
+    committer_thread = threading.Thread(target=committer, daemon=True)
+    committer_thread.start()
 
     # Sensor watchdog runs on its own timer — silence produces no messages, so it
     # can't be driven by the message loop. Only started if sensors are expected.
+    watchdog_thread = None
     stop_watchdog = threading.Event()
     if (config.get('Sensors', 'ExpectedSensors', fallback='').strip()
             or config.get('Assets', 'WatchedMacs', fallback='').strip()):
@@ -892,24 +916,35 @@ def main():
                 except Exception as e:
                     logging.error(f"Sensor watchdog error: {e}")
 
-        threading.Thread(target=watchdog, daemon=True).start()
+        watchdog_thread = threading.Thread(target=watchdog, daemon=True)
+        watchdog_thread.start()
         logging.info(f"Sensor watchdog active (every {interval}s).")
 
+    exit_code = 0
     try:
         logging.info(f"Attempting to connect to MQTT broker at {mqtt_host}:{mqtt_port}...")
         client.connect(mqtt_host, mqtt_port, 60)
         client.loop_forever()
     except ConnectionRefusedError:
         logging.error(f"MQTT connection refused. Is the broker running at {mqtt_host}:{mqtt_port}?")
+        exit_code = 1  # nonzero so systemd Restart=on-failure actually restarts us
     except OSError as e: # Catch potential network errors during connect
         logging.error(f"Network error connecting to MQTT broker: {e}")
+        exit_code = 1
     except KeyboardInterrupt:
         logging.info("Script interrupted by user.")
     except Exception as e:
         logging.exception(f"An unexpected error occurred in the main loop: {e}")
+        exit_code = 1
     finally:
         logging.info("Shutting down...")
+        # Stop and join background workers before touching the DB, so no thread
+        # writes through the cursor while we commit and close it.
         stop_watchdog.set()
+        stop_committer.set()
+        if watchdog_thread:
+            watchdog_thread.join(timeout=5)
+        committer_thread.join(timeout=5)
         if client.is_connected():
             logging.info("Disconnecting MQTT client...")
             client.disconnect()
@@ -917,14 +952,15 @@ def main():
         if db_conn:
             try:
                 logging.info("Committing final batch before closing...")
-                db_conn.commit() # Commit any remaining changes
+                with db_lock:
+                    db_conn.commit() # Commit any remaining changes
             except sqlite3.Error as e:
                 logging.error(f"Failed to commit final batch to SQLite: {e}")
             finally:
                 logging.info("Closing database connection...")
                 db_conn.close()
         logging.info("Script finished.")
-    return 0 # Indicate successful exit
+    return exit_code
 
 if __name__ == "__main__":
     sys.exit(main()) # Exit with the return code from main()

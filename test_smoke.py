@@ -16,6 +16,12 @@ monitor.setup_logging()  # would raise if interpolation mangled the %(asctime)s 
 assert monitor.config.getint('Filtering', 'StateTimeoutSeconds') == 3600
 assert monitor.config.getint('Filtering', 'AlertCooldownSeconds') == 300
 
+# The suite must never touch the network: config.ini ships with EnableNtfy=true,
+# so any unmocked dispatch would POST to ntfy. Disable every outbound channel up
+# front; individual channel paths are exercised under explicit mocks below.
+for _ch in ('EnableNtfy', 'EnableWebhook', 'EnableTwilio', 'EnableSmtp', 'EnableMqtt'):
+    monitor.config.set('Notifications', _ch, 'false')
+
 
 # Message pipeline: parse -> process -> alert (dispatch mocked, DB skipped)
 monitor.whitelist = {'AA:BB:CC:DD:EE:FF'}
@@ -198,15 +204,19 @@ with mock.patch.object(monitor, 'send_alert') as sa:
 monitor.correlation_events.clear()
 monitor.event_last_alerts.clear()
 
+stale = time.time() - 1000  # seen once, then silent past the 900s timeout
+
 # Mass offline: several sensors dropping together escalates as a possible attack
 monitor.config.set('Sensors', 'ExpectedSensors', 'gate,fence,drive')
 monitor.config.set('Sensors', 'SensorTimeoutSeconds', '900')
 monitor.config.set('Sensors', 'MassOfflineCount', '2')
 monitor.sensor_offline.clear()
+monitor.sensor_offline_notified.clear()
 monitor.sensor_last_seen.clear()
+monitor.sensor_last_seen.update({'gate': stale, 'fence': stale, 'drive': stale})
 monitor.mass_offline_alerted = False
 with mock.patch.object(monitor, 'send_alert') as sa:
-    monitor.check_sensors()                       # all three never seen -> offline
+    monitor.check_sensors()                       # all three silent -> offline
     msgs = [c.kwargs['message'] for c in sa.call_args_list]
     assert any('simultaneously' in m for m in msgs), msgs
     n = sa.call_count
@@ -214,20 +224,46 @@ with mock.patch.object(monitor, 'send_alert') as sa:
     assert sa.call_count == n                     # escalation fires once
 monitor.mass_offline_alerted = False
 monitor.sensor_offline.clear()
+monitor.sensor_offline_notified.clear()
 
-# Sensor watchdog: expected sensor silent -> one offline alert, then back-online clears it
-monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
-monitor.config.set('Sensors', 'SensorTimeoutSeconds', '900')
-monitor.sensor_offline.clear()
+# Boot grace: a never-seen expected sensor is measured from monitor start, so it
+# does NOT instantly alert with a nonsensical multi-year silence.
+monitor.config.set('Sensors', 'ExpectedSensors', 'newnode')
 monitor.sensor_last_seen.clear()
+monitor.monitor_start_ts = time.time()
 with mock.patch.object(monitor, 'send_alert') as sa:
-    monitor.check_sensors()                      # never seen -> offline
+    monitor.check_sensors()
+    assert sa.call_count == 0 and 'newnode' not in monitor.sensor_offline
+monitor.sensor_offline.clear(); monitor.sensor_offline_notified.clear()
+
+# Sensor watchdog: silent sensor -> one offline alert, then back-online clears it
+monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
+monitor.sensor_last_seen.clear()
+monitor.sensor_last_seen['gate'] = stale
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.check_sensors()                      # silent -> offline + alert
     assert sa.call_count == 1 and 'gate' in monitor.sensor_offline
     monitor.check_sensors()                       # still offline -> no repeat
     assert sa.call_count == 1
     monitor.note_sensor_seen('gate')              # heartbeat/detection arrives
     monitor.check_sensors()
     assert 'gate' not in monitor.sensor_offline
+
+# Arming-latch: a fault observed while DISARMED must still alert on the first
+# armed run (regression: the offline set used to latch before the arm check).
+monitor.config.set('Sensors', 'ExpectedSensors', 'gate')
+monitor.config.set('Arming', 'Schedule', '')
+monitor.sensor_last_seen.clear(); monitor.sensor_last_seen['gate'] = stale
+monitor.sensor_offline.clear(); monitor.sensor_offline_notified.clear()
+monitor.manual_armed = False                      # disarmed
+with mock.patch.object(monitor, 'send_alert') as sa:
+    monitor.check_sensors()
+    assert sa.call_count == 0 and 'gate' in monitor.sensor_offline  # observed, not notified
+    monitor.manual_armed = None                    # re-armed (empty schedule = always armed)
+    monitor.check_sensors()
+    assert sa.call_count == 1                       # reconciled: alerts now
+monitor.manual_armed = None
+monitor.sensor_offline.clear(); monitor.sensor_offline_notified.clear()
 monitor.config.set('Sensors', 'ExpectedSensors', '')
 
 # Whitelist hot-reload: edits on disk apply without a restart
