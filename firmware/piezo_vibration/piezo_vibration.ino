@@ -101,11 +101,13 @@ void report(char kind, int value) {
     Serial.println(line);
   #endif
 #else
+  // Explicit per-kind mapping so it matches the compact-line/registry contract:
+  // K=knock/peak, G=glass/peak, S=shake/hits. (A K-vs-else test would miss glass.)
+  const char* event = kind == 'K' ? "knock" : kind == 'G' ? "glass" : "shake";
+  const char* field = kind == 'S' ? "hits" : "peak";
   char payload[80];
   snprintf(payload, sizeof(payload),
-           "{\"event\":\"%s\",\"from\":\"%s\",\"%s\":%d}",
-           kind == 'K' ? "knock" : "shake", NODE_ID,
-           kind == 'K' ? "peak" : "hits", value);
+           "{\"event\":\"%s\",\"from\":\"%s\",\"%s\":%d}", event, NODE_ID, field, value);
   if (mqtt.connected()) mqtt.publish(MQTT_TOPIC, payload);
 #endif
 }
