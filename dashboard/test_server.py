@@ -46,6 +46,11 @@ assert len(query_search(conn, tfrom='2026-08-27T10:00:00+00:00',
                         tto='2026-08-27T10:01:00+00:00')) == 2
 # pagination
 assert query_search(conn, limit=1, offset=1)[0]['node'] == 'fence-e'
+# bounded limits: a negative limit must not mean "unbounded" (SQLite's convention),
+# and junk falls back to the default rather than erroring
+assert len(query_search(conn, limit=-1)) == 3            # clamped, not unbounded
+assert len(query_search(conn, limit='garbage')) == 3     # default, no crash
+assert len(query_search(conn, limit=99999)) == 3         # capped at MAX_LIMIT, returns all 3
 
 # Facets: distinct values to populate the filter dropdowns
 f = query_facets(conn)

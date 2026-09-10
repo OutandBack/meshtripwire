@@ -25,6 +25,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
+MAX_LIMIT = 2000  # cap page size; SQLite treats a negative LIMIT as unbounded
+
+
+def _bound(val, default, hi=MAX_LIMIT, lo=1):
+    """User-supplied count clamped to [lo, hi]; junk or sub-lo values fall back to
+    default (so a negative LIMIT never becomes SQLite's 'unbounded')."""
+    try:
+        n = int(val)
+    except (TypeError, ValueError):
+        return default
+    return default if n < lo else min(n, hi)
 
 
 def query_nodes(conn):
@@ -43,7 +54,7 @@ def query_notifications(conn, limit=100, offset=0):
     try:
         rows = conn.execute(
             "SELECT ts, channel, target, ok, error, message FROM notifications "
-            "ORDER BY ts DESC LIMIT ? OFFSET ?", (int(limit), int(offset))).fetchall()
+            "ORDER BY ts DESC LIMIT ? OFFSET ?", (_bound(limit, 100), _bound(offset, 0, lo=0))).fetchall()
     except sqlite3.OperationalError:
         return []  # monitor hasn't created the notifications table yet
     return [{'ts': ts, 'channel': ch, 'target': tg, 'ok': ok, 'error': err,
@@ -63,7 +74,7 @@ def query_search(conn, q='', type_='', node='', event='', tfrom='', tto='',
         rows = conn.execute(sql, (type_, type_, node, node, event, event,
                                   tfrom, tfrom, tto, tto,
                                   q, like, like, like,
-                                  int(limit), int(offset))).fetchall()
+                                  _bound(limit, 100), _bound(offset, 0, lo=0))).fetchall()
     except sqlite3.OperationalError:
         return []  # monitor hasn't created the events table yet
     events = []
