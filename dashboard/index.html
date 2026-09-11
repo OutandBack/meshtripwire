@@ -168,6 +168,9 @@
   #notif .fail { color: var(--alarm); }
   #notif .msg { color: var(--dim); }
   #notif li.failed .msg { color: var(--alarm); }
+  #backlog { font-size: 10px; letter-spacing: normal; text-transform: none; }
+  #backlog .queued { color: var(--dim); }
+  #backlog .dead { color: var(--alarm); }
   #notif-more {
     margin: 8px 0; background: none; border: 1px solid var(--line);
     border-radius: 3px; color: var(--dim); font-family: var(--mono);
@@ -195,7 +198,7 @@
   <div>
     <h2>Nodes</h2>
     <table id="nodes"><tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr></table>
-    <h2>Notification log</h2>
+    <h2>Notification log <span id="backlog"></span></h2>
     <ul id="notif"></ul>
     <button id="notif-more" type="button" hidden>load older</button>
   </div>
@@ -217,7 +220,7 @@
 // Colors come from the CSS tokens so the strip chart follows the theme
 const typeColor = t => getComputedStyle(document.documentElement)
   .getPropertyValue('--' + (t === 'wireless_presence' ? 'wireless' : t)).trim() || '#7A8F81';
-let events = [], nodes = [], notifs = [];
+let events = [], nodes = [], notifs = [], outbox = {};
 let notifLimit = 40;  // grows on "load older"; newest-anchored so live refresh keeps depth
 
 // Theme: 'night' = red-flashlight mode, persisted per browser
@@ -356,15 +359,20 @@ function render() {
   // more rows likely exist only when the fetch filled to the current limit
   document.getElementById('notif-more').hidden = notifs.length < notifLimit;
 
+  const bl = document.getElementById('backlog'); bl.innerHTML = '';
+  if (outbox.pending) bl.innerHTML += `<span class="queued">${outbox.pending} queued</span> `;
+  if (outbox.dead) bl.innerHTML += `<span class="dead">${outbox.dead} failed</span>`;
+
   drawChart();
 }
 
 async function refresh() {
   try {
-    [events, nodes, notifs] = await Promise.all([
+    [events, nodes, notifs, outbox] = await Promise.all([
       fetch('/api/events?limit=500').then(r => r.json()),
       fetch('/api/nodes').then(r => r.json()),
       fetch('/api/notifications?limit=' + notifLimit).then(r => r.json()),
+      fetch('/api/outbox').then(r => r.json()),
     ]);
     const live = document.getElementById('live');
     live.textContent = 'updated ' + new Date().toTimeString().slice(0, 8);

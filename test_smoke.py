@@ -416,6 +416,45 @@ with tempfile.TemporaryDirectory() as tmp:
     assert monitor.dark_vehicle_pending is None
     monitor.config.set('Filtering', 'DarkVehicleWindowSeconds', '0')
 
+    # Durable alert outbox: enqueue persists a pending row; the worker delivers,
+    # retries transient failures with backoff, and dead-letters after the cap.
+    monitor.delivery_running = True
+    try:
+        def outbox_count(status):
+            return monitor.db_cursor.execute(
+                "SELECT COUNT(*) FROM alert_outbox WHERE status=?", (status,)).fetchone()[0]
+
+        monitor.db_cursor.execute("DELETE FROM alert_outbox"); monitor.db_conn.commit()
+        monitor.enqueue_alert('DE:AD:BE:EF:00:01', 'node01', 'test alert')
+        assert outbox_count('pending') == 1  # queued, not delivered inline
+
+        # A channel that succeeds marks the row sent
+        def ok_send(cfg, mac, node, message=None, on_result=None):
+            if on_result: on_result('ntfy', 't', True, None, message)
+        with mock.patch.object(monitor, 'send_alert', side_effect=ok_send):
+            monitor.process_outbox()
+        assert outbox_count('pending') == 0 and outbox_count('sent') == 1
+
+        # A failing channel retries with a future next_attempt, not sent
+        monitor.db_cursor.execute("DELETE FROM alert_outbox"); monitor.db_conn.commit()
+        monitor.enqueue_alert('gate', 'gate', 'fail me')
+        def fail_send(cfg, mac, node, message=None, on_result=None):
+            if on_result: on_result('ntfy', 't', False, 'timeout', message)
+        with mock.patch.object(monitor, 'send_alert', side_effect=fail_send):
+            monitor.process_outbox()
+            row = monitor.db_cursor.execute(
+                "SELECT status, attempts, next_attempt FROM alert_outbox").fetchone()
+            assert row[0] == 'pending' and row[1] == 1 and row[2] > time.time()
+            # force it due and exhaust attempts -> dead
+            for _ in range(monitor.OUTBOX_MAX_ATTEMPTS):
+                monitor.db_cursor.execute("UPDATE alert_outbox SET next_attempt=0")
+                monitor.db_conn.commit()
+                monitor.process_outbox()
+        assert outbox_count('dead') == 1 and outbox_count('pending') == 0
+        monitor.db_cursor.execute("DELETE FROM alert_outbox"); monitor.db_conn.commit()
+    finally:
+        monitor.delivery_running = False
+
     # MAC detections also produce a wireless_presence event row with meta
     monitor.process_detection(dict(parsed, lat=None, lon=None))
     row = monitor.db_cursor.execute(

@@ -14,6 +14,7 @@ Endpoints:
     /history                  full-history search page
     /api/search?q&type&node&event&from&to&limit&offset   filtered event search
     /api/facets               distinct types/nodes/events for the filters
+    /api/outbox               alert-delivery backlog: counts + oldest pending
 Read-only by design: arming and configuration stay on the MQTT control topic
 and config.ini, so the dashboard adds no attack surface beyond a status page.
 """
@@ -47,6 +48,20 @@ def query_nodes(conn):
     except sqlite3.OperationalError:
         return []  # monitor hasn't created the events table yet
     return [{'node': n, 'last_seen': ts, 'events': c} for n, ts, c in rows]
+
+
+def query_outbox(conn):
+    """Alert-delivery backlog: counts by status and the oldest pending timestamp."""
+    out = {'pending': 0, 'dead': 0, 'sent': 0, 'oldest_pending': None}
+    try:
+        for status, n in conn.execute(
+                "SELECT status, COUNT(*) FROM alert_outbox GROUP BY status"):
+            out[status] = n
+        out['oldest_pending'] = conn.execute(
+            "SELECT MIN(ts) FROM alert_outbox WHERE status='pending'").fetchone()[0]
+    except sqlite3.OperationalError:
+        pass  # table not created yet
+    return out
 
 
 def query_notifications(conn, limit=100, offset=0):
@@ -142,6 +157,8 @@ def make_handler(db_path):
                             limit=p.get('limit', 100), offset=p.get('offset', 0)))
                     elif url.path == '/api/facets':
                         self._json(query_facets(conn))
+                    elif url.path == '/api/outbox':
+                        self._json(query_outbox(conn))
                     else:
                         self.send_error(404)
                 finally:

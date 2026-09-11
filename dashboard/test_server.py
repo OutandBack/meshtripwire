@@ -2,7 +2,7 @@
 import sqlite3
 
 from dashboard.server import (query_facets, query_nodes, query_notifications,
-                              query_search)
+                              query_outbox, query_search)
 
 conn = sqlite3.connect(':memory:')
 conn.execute("""CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,10 +73,22 @@ older = query_notifications(conn, limit=1, offset=1)
 assert older[0]['channel'] == 'ntfy' and older[0]['ts'] == '2026-08-27T10:00:00+00:00', older
 assert query_notifications(conn, limit=1, offset=5) == []
 
+# Outbox backlog: counts by status + oldest pending
+conn.execute("""CREATE TABLE alert_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL, target TEXT, node TEXT, message TEXT,
+    attempts INTEGER, status TEXT, next_attempt REAL, last_error TEXT)""")
+conn.executemany("INSERT INTO alert_outbox (ts,status) VALUES (?,?)", [
+    ('2026-08-27T09:00:00+00:00', 'pending'), ('2026-08-27T09:05:00+00:00', 'pending'),
+    ('2026-08-27T08:00:00+00:00', 'dead'), ('2026-08-27T07:00:00+00:00', 'sent')])
+ob = query_outbox(conn)
+assert ob['pending'] == 2 and ob['dead'] == 1 and ob['sent'] == 1
+assert ob['oldest_pending'] == '2026-08-27T09:00:00+00:00', ob
+
 # Database without an events table yet (monitor never ran): empty, no errors
 bare = sqlite3.connect(':memory:')
 assert query_search(bare) == [] and query_nodes(bare) == []
 assert query_notifications(bare) == []
+assert query_outbox(bare) == {'pending': 0, 'dead': 0, 'sent': 0, 'oldest_pending': None}
 assert query_search(bare) == [] and query_facets(bare) == {'types': [], 'nodes': [], 'events': []}
 
 # Empty database (fresh install): both return empty lists, no errors

@@ -38,6 +38,10 @@ db_conn = None
 db_cursor = None
 db_lock = threading.RLock() # serializes the shared cursor across MQTT/watchdog/committer/worker threads
 last_db_commit = 0.0 # for the time-based commit that keeps dashboard reads fresh
+delivery_running = False # True once the outbox delivery worker is up; gates async vs inline dispatch
+OUTBOX_MAX_ATTEMPTS = 6 # dead-letter an alert after this many failed deliveries
+OUTBOX_BACKOFF_BASE = 30 # seconds; retry delay is base * 2**attempts, capped at 1h
+OUTBOX_CAP = 5000 # max pending rows; oldest pending are dead-lettered past this
 
 # --- Configuration Loading ---
 def load_app_config(config_path='config/config.ini'):
@@ -154,6 +158,16 @@ def setup_database():
                 ok INTEGER, error TEXT, message TEXT
             )
         """)
+        # Durable alert intents: an alert survives a monitor restart or a provider
+        # outage here, retried by the delivery worker until sent or dead.
+        db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alert_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL, target TEXT, node TEXT, message TEXT,
+                attempts INTEGER DEFAULT 0, status TEXT DEFAULT 'pending',
+                next_attempt REAL DEFAULT 0, last_error TEXT
+            )
+        """)
         db_conn.commit()
         backfill_detections()
         logging.info(f"Connected to SQLite database: {db_path}")
@@ -210,6 +224,9 @@ def prune_old_detections():
                 logging.info(f"Pruned {db_cursor.rowcount} detection(s) older than {days} day(s).")
             db_cursor.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
             db_cursor.execute("DELETE FROM notifications WHERE ts < ?", (cutoff,))
+            # Only settled outbox rows age out; pending alerts stay until delivered.
+            db_cursor.execute("DELETE FROM alert_outbox WHERE status IN ('sent','dead') AND ts < ?",
+                              (cutoff,))
             db_conn.commit()
     except sqlite3.Error as e:
         logging.error(f"Failed to prune old detections: {e}")
@@ -274,12 +291,9 @@ def raise_internal_event(type_, event, node, value, meta=None, key_extra=None):
         return False
     event_last_alerts[key] = now_ts
     message = reg["template"].format(node=node, val=value, **(meta or {}))
-    logging.warning(f"{message} Sending alert.")
-    try:
-        send_alert(config, type_, node, message=message, on_result=record_notification)
-    except Exception as e:
-        logging.error(f"Error calling send_alert for {type_} event: {e}")
-    return True  # so callers latch a fault only once it has actually been alerted
+    logging.warning(f"{message} Queuing alert.")
+    enqueue_alert(type_, node, message)
+    return True  # so callers latch a fault only once it has actually been queued
 
 
 def watched_assets():
@@ -376,11 +390,7 @@ def correlation_note(ev_type, node, event_name):
     message = ("HIGH CONFIDENCE EVENT: multiple sensor types triggered within "
                f"{window}s:\n" + "\n".join(lines))
     logging.warning(message)
-    try:
-        send_alert(config, "correlated", ",".join(sorted({e[2] for e in correlation_events})),
-                   message=message, on_result=record_notification)
-    except Exception as e:
-        logging.error(f"Error sending correlation alert: {e}")
+    enqueue_alert("correlated", ",".join(sorted({e[2] for e in correlation_events})), message)
 
 
 def log_event(ev):
@@ -583,12 +593,8 @@ def check_sensors():
             if is_armed() and node not in sensor_offline_notified:
                 sensor_offline_notified.add(node)
                 logging.warning(f"Sensor '{node}' offline: no data for {int(silent)}s.")
-                try:
-                    send_alert(config, node, node,
-                               message=f"Sensor '{node}' offline: no data for {int(silent)}s.",
-                               on_result=record_notification)
-                except Exception as e:
-                    logging.error(f"Error sending sensor-offline alert for {node}: {e}")
+                enqueue_alert(node, node,
+                              message=f"Sensor '{node}' offline: no data for {int(silent)}s.")
         else:
             if node in sensor_offline:
                 logging.info(f"Sensor '{node}' back online.")
@@ -626,11 +632,8 @@ def trigger_alert_if_needed(mac, node_id, status):
         logging.debug(f"Alert for {mac} suppressed (cooldown {cooldown}s).")
         return
     last_alert_times[mac] = now_ts
-    logging.warning(f"Unknown MAC detected: {mac} from Node {node_id}. Sending alert.")
-    try:
-        send_alert(config, mac, node_id, on_result=record_notification) # send_alert handles its own errors
-    except Exception as e:
-        logging.error(f"Error calling send_alert for MAC {mac}, Node {node_id}: {e}")
+    logging.warning(f"Unknown MAC detected: {mac} from Node {node_id}. Queuing alert.")
+    enqueue_alert(mac, node_id)
     check_casing(mac, node_id)
 
 
@@ -691,11 +694,8 @@ def handle_sensor_event(payload_bytes):
     message = reg["template"].format(node=node, val=val)
     if thunder:
         message += " (coincides with lightning; possible thunder)"
-    logging.warning(f"{message} Sending alert.")
-    try:
-        send_alert(config, ev["type"], node, message=message, on_result=record_notification)
-    except Exception as e:
-        logging.error(f"Error calling send_alert for {ev['type']} event from {node}: {e}")
+    logging.warning(f"{message} Queuing alert.")
+    enqueue_alert(ev["type"], node, message)
     return True
 
 
@@ -712,6 +712,78 @@ def record_notification(channel, target, ok, error, message):
                  1 if ok else 0, error, message))
     except sqlite3.Error as e:
         logging.error(f"Failed to log notification ({channel}): {e}")
+
+
+def enqueue_alert(target, node, message=None):
+    """Hand an alert to the durable outbox (fast, called from the ingest thread).
+
+    When the delivery worker isn't running (tests, or DB unavailable), deliver
+    inline so behavior and the send_alert seam are unchanged.
+    """
+    if not (delivery_running and db_cursor and db_conn):
+        try:
+            send_alert(config, target, node, message=message, on_result=record_notification)
+        except Exception as e:
+            logging.error(f"Inline alert dispatch failed for {target}: {e}")
+        return
+    try:
+        with db_lock:
+            db_cursor.execute(
+                "INSERT INTO alert_outbox (ts, target, node, message) VALUES (?, ?, ?, ?)",
+                (datetime.now(timezone.utc).isoformat(), target, node, message))
+            # Bound the queue: dead-letter the oldest pending beyond the cap so a
+            # long provider outage can't grow the DB without limit.
+            over = db_cursor.execute(
+                "SELECT COUNT(*) FROM alert_outbox WHERE status='pending'").fetchone()[0] - OUTBOX_CAP
+            if over > 0:
+                db_cursor.execute(
+                    "UPDATE alert_outbox SET status='dead', last_error='outbox cap exceeded' "
+                    "WHERE id IN (SELECT id FROM alert_outbox WHERE status='pending' "
+                    "ORDER BY id LIMIT ?)", (over,))
+                logging.error(f"Alert outbox over cap; dead-lettered {over} oldest pending.")
+            db_conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Failed to enqueue alert for {target}: {e}")
+
+
+def process_outbox():
+    """Deliver due outbox alerts, retrying transient failures with backoff.
+
+    Delivery (send_alert, possibly slow network) runs outside the DB lock; only
+    the small status updates are locked.
+    """
+    now = time.time()
+    with db_lock:
+        rows = db_cursor.execute(
+            "SELECT id, target, node, message, attempts FROM alert_outbox "
+            "WHERE status='pending' AND next_attempt <= ? ORDER BY id LIMIT 20",
+            (now,)).fetchall()
+    for row_id, target, node, message, attempts in rows:
+        results = []  # (ok, error) per channel
+        try:
+            send_alert(config, target, node, message=message,
+                       on_result=lambda ch, tg, ok, err, msg:
+                           (record_notification(ch, tg, ok, err, msg), results.append((ok, err)))[0])
+        except Exception as e:
+            results = [(False, str(e))]
+        # No enabled channel means nothing to deliver -> don't retry forever.
+        delivered = (not results) or any(ok for ok, _ in results)
+        last_err = next((err for ok, err in results if not ok), None)
+        with db_lock:
+            if delivered:
+                db_cursor.execute("UPDATE alert_outbox SET status='sent', attempts=attempts+1 "
+                                  "WHERE id=?", (row_id,))
+            elif attempts + 1 >= OUTBOX_MAX_ATTEMPTS:
+                db_cursor.execute("UPDATE alert_outbox SET status='dead', attempts=?, last_error=? "
+                                  "WHERE id=?", (attempts + 1, last_err, row_id))
+                logging.error(f"Alert to {target} dead-lettered after {attempts + 1} attempts: {last_err}")
+            else:
+                backoff = min(OUTBOX_BACKOFF_BASE * (2 ** attempts), 3600)
+                db_cursor.execute("UPDATE alert_outbox SET attempts=?, next_attempt=?, last_error=? "
+                                  "WHERE id=?", (attempts + 1, now + backoff, last_err, row_id))
+                logging.warning(f"Alert to {target} delivery failed (attempt {attempts + 1}); "
+                                f"retrying in {int(backoff)}s.")
+            db_conn.commit()
 
 
 def maybe_commit():
@@ -899,6 +971,23 @@ def main():
     committer_thread = threading.Thread(target=committer, daemon=True)
     committer_thread.start()
 
+    # Delivery worker: drains the durable alert outbox off the ingest thread, so a
+    # slow or failing notification provider never stalls detection, and a queued
+    # alert survives a monitor restart and is retried with backoff.
+    global delivery_running
+    stop_delivery = threading.Event()
+
+    def delivery():
+        while not stop_delivery.wait(2):
+            try:
+                process_outbox()
+            except Exception as e:
+                logging.error(f"Alert delivery worker error: {e}")
+
+    delivery_running = True
+    delivery_thread = threading.Thread(target=delivery, daemon=True)
+    delivery_thread.start()
+
     # Sensor watchdog runs on its own timer — silence produces no messages, so it
     # can't be driven by the message loop. Only started if sensors are expected.
     watchdog_thread = None
@@ -942,9 +1031,12 @@ def main():
         # writes through the cursor while we commit and close it.
         stop_watchdog.set()
         stop_committer.set()
+        stop_delivery.set()
+        delivery_running = False
         if watchdog_thread:
             watchdog_thread.join(timeout=5)
         committer_thread.join(timeout=5)
+        delivery_thread.join(timeout=12)  # allow an in-flight send_alert to finish
         if client.is_connected():
             logging.info("Disconnecting MQTT client...")
             client.disconnect()
