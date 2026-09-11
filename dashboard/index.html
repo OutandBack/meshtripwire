@@ -171,6 +171,8 @@
   #backlog { font-size: 10px; letter-spacing: normal; text-transform: none; }
   #backlog .queued { color: var(--dim); }
   #backlog .dead { color: var(--alarm); }
+  #monitor-health .ok { color: var(--contact); font-weight: 600; }
+  #monitor-health .fail { color: var(--alarm); font-weight: 700; }
   #notif-more {
     margin: 8px 0; background: none; border: 1px solid var(--line);
     border-radius: 3px; color: var(--dim); font-family: var(--mono);
@@ -185,6 +187,7 @@
   <span class="wordmark">MESH<span class="tick">|</span>TRIPWIRE</span>
   <span class="stat"><b id="n-nodes">–</b> nodes</span>
   <span class="stat"><b id="n-events">–</b> events / 24h</span>
+  <span class="stat" id="monitor-health"></span>
   <button id="theme" type="button" aria-label="switch theme">night</button>
   <span class="live" id="live">updated –</span>
 </header>
@@ -220,7 +223,7 @@
 // Colors come from the CSS tokens so the strip chart follows the theme
 const typeColor = t => getComputedStyle(document.documentElement)
   .getPropertyValue('--' + (t === 'wireless_presence' ? 'wireless' : t)).trim() || '#7A8F81';
-let events = [], nodes = [], notifs = [], outbox = {};
+let events = [], nodes = [], notifs = [], outbox = {}, status = {};
 let notifLimit = 40;  // grows on "load older"; newest-anchored so live refresh keeps depth
 
 // Theme: 'night' = red-flashlight mode, persisted per browser
@@ -329,13 +332,21 @@ function render() {
   document.getElementById('n-events').textContent =
     events.filter(e => new Date(e.ts) > dayAgo).length;
 
+  // Stale threshold comes from the monitor's configured watchdog timeout, not a
+  // hardcoded guess (fall back to 30 min only if the monitor hasn't reported).
+  const staleMs = (status.sensor_timeout || 1800) * 1000;
   const nt = document.getElementById('nodes');
-  nt.innerHTML = '<tr><th>node</th><th>last event</th><th style="text-align:right">total</th></tr>' +
-    nodes.map(n => {
-      const stale = Date.now() - new Date(n.last_seen) > 30 * 60 * 1000;
-      return `<tr><td>${esc(n.node)}</td><td class="${stale ? 'node-stale' : ''}">${ago(n.last_seen)}</td>` +
-             `<td class="num">${esc(n.events)}</td></tr>`;
-    }).join('');
+  let rows = nodes.map(n => {
+    const stale = Date.now() - new Date(n.last_seen) > staleMs;
+    const hb = n.source === 'heartbeat' ? ' ·hb' : '';
+    return `<tr><td>${esc(n.node)}</td><td class="${stale ? 'node-stale' : ''}">${ago(n.last_seen)}${hb}</td>` +
+           `<td class="num">${esc(n.events)}</td></tr>`;
+  });
+  // Expected sensors the monitor reports missing but that never appear above.
+  const shown = new Set(nodes.map(n => n.node));
+  for (const m of (status.missing || [])) if (!shown.has(m))
+    rows.push(`<tr><td>${esc(m)}</td><td class="node-stale">missing</td><td class="num">0</td></tr>`);
+  nt.innerHTML = '<tr><th>node</th><th>last seen</th><th style="text-align:right">total</th></tr>' + rows.join('');
 
   const focus = document.getElementById('focus').checked;
   const feed = events.filter(e => {
@@ -363,16 +374,25 @@ function render() {
   if (outbox.pending) bl.innerHTML += `<span class="queued">${outbox.pending} queued</span> `;
   if (outbox.dead) bl.innerHTML += `<span class="dead">${outbox.dead} failed</span>`;
 
+  // Monitor health: a fetch succeeding only proves the dashboard is up. The
+  // monitor stamps monitor_status every 5s; if that goes stale it is down.
+  const mh = document.getElementById('monitor-health');
+  const seen = status.monitor_seen ? Date.now() - new Date(status.monitor_seen) : Infinity;
+  if (seen < 30000 && status.broker_connected) mh.innerHTML = '<b class="ok">monitor up</b>';
+  else if (seen < 30000) mh.innerHTML = '<b class="fail">broker down</b>';
+  else mh.innerHTML = '<b class="fail">monitor down</b>';
+
   drawChart();
 }
 
 async function refresh() {
   try {
-    [events, nodes, notifs, outbox] = await Promise.all([
+    [events, nodes, notifs, outbox, status] = await Promise.all([
       fetch('/api/events?limit=500').then(r => r.json()),
       fetch('/api/nodes').then(r => r.json()),
       fetch('/api/notifications?limit=' + notifLimit).then(r => r.json()),
       fetch('/api/outbox').then(r => r.json()),
+      fetch('/api/status').then(r => r.json()),
     ]);
     const live = document.getElementById('live');
     live.textContent = 'updated ' + new Date().toTimeString().slice(0, 8);

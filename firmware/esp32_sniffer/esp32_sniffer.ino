@@ -62,6 +62,8 @@ const char* MQTT_USER   = "";           // "" = anonymous
 const char* MQTT_PASS   = "";
 const char* MQTT_TOPIC  = "meshtastic/receive";
 const char* NODE_ID     = "sensor-01";  // tag for MQTT sightings (serial/LoRa maps by relay node instead)
+const char* HEARTBEAT_TOPIC = "meshtripwire/heartbeat"; // liveness so a quiet node stays healthy
+const uint32_t HEARTBEAT_MS = 60000;    // heartbeat interval (WiFi/MQTT mode only)
 const int   RSSI_MIN    = -85;          // ignore weaker frames (tune per deployment)
 const uint32_t COOLDOWN_MS = 60000;     // per-MAC re-publish suppression
 const uint8_t  CHANNEL_MAX = 11;        // WiFi: hop 1..CHANNEL_MAX (13/14 region-dependent)
@@ -396,6 +398,14 @@ void loop() {
   #endif
   }
   mqtt.loop();
+  // Heartbeat so a working-but-quiet sensor still satisfies the base watchdog.
+  static uint32_t lastHb = 0;
+  if (mqtt.connected() && (!lastHb || millis() - lastHb > HEARTBEAT_MS)) {
+    lastHb = millis();
+    char hb[48];
+    snprintf(hb, sizeof(hb), "{\"node\":\"%s\"}", NODE_ID);
+    mqtt.publish(HEARTBEAT_TOPIC, hb);
+  }
 #endif
 
 #if DETECT_ATTACKS

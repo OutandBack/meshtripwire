@@ -90,6 +90,7 @@ unit-tested against the documented protocol but has not touched hardware.
 | SMTP relay channel (SES/Gmail/Mailgun-style) | shipped | mock-tested at the smtplib call level |
 | Notification delivery log | shipped | unit + smoke suites; live stack |
 | Durable alert outbox (retry, restart-survival, backlog) | shipped | unit-tested retry/dead-letter; live delivery verified |
+| Health reporting (firmware heartbeats, monitor liveness, scan-worker check) | shipped | unit + live stack; firmware compile-verified |
 | Dashboard + history search + night mode | shipped | live stack, screenshot-verified, mobile pass |
 | Meshtastic serial→LoRa backhaul | shipped | bridge unit-tested; serial path bench-tested |
 | LXMF/Reticulum backhaul | shipped | **live-tested** over a real RNS network (LXMF delivery through the bridge to a dispatched alert); RNode radio-only path pending a second radio |

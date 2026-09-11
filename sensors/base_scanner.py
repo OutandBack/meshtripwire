@@ -100,20 +100,29 @@ def main():
     client.loop_start()
     print(f"publishing to mqtt://{args.broker}:{args.broker_port}/{args.topic}")
 
-    workers = []
+    workers = {}
     if args.wifi:
-        workers.append(threading.Thread(target=scan_wifi, args=(client, args), daemon=True))
+        workers['wifi'] = threading.Thread(target=scan_wifi, args=(client, args), daemon=True)
     if args.ble:
-        workers.append(threading.Thread(target=scan_ble, args=(client, args), daemon=True))
-    for w in workers:
+        workers['ble'] = threading.Thread(target=scan_ble, args=(client, args), daemon=True)
+    for w in workers.values():
         w.start()
     try:
         while True:
+            # Only claim liveness while the scan workers are actually running. If
+            # a radio worker died, stop heartbeating so the base-station watchdog
+            # flags this node offline instead of trusting a hollow heartbeat.
+            dead = [name for name, w in workers.items() if not w.is_alive()]
+            if dead:
+                print(f"scan worker(s) died: {', '.join(dead)}; stopping heartbeat")
+                return 1
             client.publish(args.heartbeat_topic, json.dumps({"node": args.node}))
             time.sleep(args.heartbeat_interval)
     except KeyboardInterrupt:
         print("stopping")
+        return 0
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    sys.exit(main() or 0)

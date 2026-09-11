@@ -21,6 +21,8 @@ node_locations = {}
 last_alert_times = {} # Stores {'mac': last_alert_unix_ts} for alert cooldown
 dwell_states = {} # Stores {'mac': (first_seen_ts, last_seen_ts)} for dwell-time alerting
 sensor_last_seen = {} # Stores {'node': last_ts} from detections/heartbeats, for the watchdog
+node_sources = {} # Stores {'node': 'event'|'heartbeat'} — how a node was last seen, for health display
+broker_connected = False # set by on_connect/on_disconnect; written to monitor_status for the dashboard
 sensor_offline = set() # Nodes observed offline (silence past timeout), independent of arming
 sensor_offline_notified = set() # Offline nodes already alerted; separates observed from notified fault state
 monitor_start_ts = time.time() # boot grace: never-seen expected sensors measured from here, not epoch 0
@@ -166,6 +168,21 @@ def setup_database():
                 ts TEXT NOT NULL, target TEXT, node TEXT, message TEXT,
                 attempts INTEGER DEFAULT 0, status TEXT DEFAULT 'pending',
                 next_attempt REAL DEFAULT 0, last_error TEXT
+            )
+        """)
+        # Health surfaces for the dashboard: per-node liveness (so a quiet-but-
+        # working sensor still shows healthy via heartbeats) and a monitor
+        # singleton (so a dashboard fetch can tell monitor-down from empty-history).
+        db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS node_health (
+                node TEXT PRIMARY KEY, last_seen TEXT, source TEXT
+            )
+        """)
+        db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS monitor_status (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                ts TEXT, broker_connected INTEGER, sensor_timeout INTEGER,
+                expected TEXT, armed INTEGER
             )
         """)
         db_conn.commit()
@@ -410,10 +427,19 @@ def log_event(ev):
         logging.error(f"Failed to insert event for {ev['node']}: {e}")
 
 
+def on_disconnect(client, userdata, flags, reason_code, properties):
+    """Track broker connectivity so monitor_status can report it to the dashboard."""
+    global broker_connected
+    broker_connected = False
+    logging.warning(f"Disconnected from MQTT Broker (reason: {reason_code}).")
+
+
 def on_connect(client, userdata, flags, reason_code, properties):
     """Callback for when the client connects to MQTT (paho v2 API)."""
+    global broker_connected
     mqtt_topic = config.get('MQTT', 'Topic', fallback='meshtastic/receive')
     if not reason_code.is_failure:
+        broker_connected = True
         logging.info("Connected successfully to MQTT Broker.")
         topics = [mqtt_topic]
         hb = config.get('Sensors', 'HeartbeatTopic', fallback='').strip()
@@ -566,9 +592,44 @@ def is_armed():
     return _in_arm_window(schedule, datetime.now())
 
 
-def note_sensor_seen(node):
-    """Record that a sensor node is alive (from a detection or a heartbeat)."""
+def note_sensor_seen(node, source='event'):
+    """Record that a sensor node is alive, and how (a detection, or a heartbeat
+    that proves a quiet-but-working node is up). Persisted to node_health by the
+    periodic health flush, not per-message, to avoid write amplification."""
     sensor_last_seen[node] = time.time()
+    node_sources[node] = source
+
+
+def flush_health():
+    """Snapshot node liveness and monitor status to the DB for the dashboard.
+
+    Runs on the committer's 5s clock, so per-message detection traffic doesn't
+    each trigger a write. Includes the configured watchdog timeout so the
+    dashboard's stale threshold matches the monitor's, not a hardcoded guess.
+    """
+    if not (db_cursor and db_conn):
+        return
+    now_iso = datetime.now(timezone.utc).isoformat()
+    expected = config.get('Sensors', 'ExpectedSensors', fallback='')
+    timeout = config.getint('Sensors', 'SensorTimeoutSeconds', fallback=900)
+    try:
+        with db_lock:
+            for node, ts in list(sensor_last_seen.items()):
+                db_cursor.execute(
+                    "INSERT INTO node_health (node, last_seen, source) VALUES (?, ?, ?) "
+                    "ON CONFLICT(node) DO UPDATE SET last_seen=excluded.last_seen, "
+                    "source=excluded.source",
+                    (node, datetime.fromtimestamp(ts, timezone.utc).isoformat(),
+                     node_sources.get(node, 'event')))
+            db_cursor.execute(
+                "INSERT INTO monitor_status (id, ts, broker_connected, sensor_timeout, expected, armed) "
+                "VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "ts=excluded.ts, broker_connected=excluded.broker_connected, "
+                "sensor_timeout=excluded.sensor_timeout, expected=excluded.expected, armed=excluded.armed",
+                (now_iso, 1 if broker_connected else 0, timeout, expected, 1 if is_armed() else 0))
+            db_conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Failed to flush health: {e}")
 
 
 def check_sensors():
@@ -904,7 +965,7 @@ def handle_heartbeat(payload_bytes):
     except (ValueError, TypeError):
         node = text or None
     if node:
-        note_sensor_seen(str(node))
+        note_sensor_seen(str(node), source='heartbeat')
         logging.debug(f"Heartbeat from sensor '{node}'.")
 
 
@@ -953,6 +1014,7 @@ def main():
     if mqtt_user:
         client.username_pw_set(mqtt_user, config.get('MQTT', 'Password', fallback=None))
     client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
     client.on_message = on_message
 
     # Commit timer: maybe_commit otherwise runs only on message arrival, so the
@@ -965,8 +1027,9 @@ def main():
             maybe_commit()
             try:
                 check_dark_vehicle()
+                flush_health()
             except Exception as e:
-                logging.error(f"Dark-vehicle check error: {e}")
+                logging.error(f"Committer periodic task error: {e}")
 
     committer_thread = threading.Thread(target=committer, daemon=True)
     committer_thread.start()

@@ -39,6 +39,8 @@ const char* MQTT_USER   = "";           // "" = anonymous
 const char* MQTT_PASS   = "";
 const char* MQTT_TOPIC  = "meshtastic/receive";
 const char* NODE_ID     = "fence-e";    // tag for MQTT events (serial/LoRa maps by relay node instead)
+const char* HEARTBEAT_TOPIC = "meshtripwire/heartbeat"; // liveness so a quiet node stays healthy
+const uint32_t HEARTBEAT_MS = 60000;    // heartbeat interval (WiFi/MQTT mode only)
 
 // Calibration knobs — every disc, mount, and fence rings differently. Flash with
 // DEBUG_PRINT on, knock and shake the thing for real, then set SPIKE_THRESHOLD
@@ -154,6 +156,14 @@ void loop() {
     mqtt.connect(NODE_ID, MQTT_USER[0] ? MQTT_USER : nullptr, MQTT_PASS[0] ? MQTT_PASS : nullptr);
   }
   mqtt.loop();
+  // Heartbeat so a working-but-quiet sensor still satisfies the base watchdog.
+  static uint32_t lastHb = 0;
+  if (mqtt.connected() && (!lastHb || millis() - lastHb > HEARTBEAT_MS)) {
+    lastHb = millis();
+    char hb[48];
+    snprintf(hb, sizeof(hb), "{\"node\":\"%s\"}", NODE_ID);
+    mqtt.publish(HEARTBEAT_TOPIC, hb);
+  }
 #endif
 
   uint32_t now = millis();

@@ -35,6 +35,8 @@ const char* MQTT_USER   = "";           // "" = anonymous
 const char* MQTT_PASS   = "";
 const char* MQTT_TOPIC  = "meshtastic/receive";
 const char* NODE_ID     = "gate";       // tag for MQTT events (serial/LoRa maps by relay node instead)
+const char* HEARTBEAT_TOPIC = "meshtripwire/heartbeat"; // liveness so a quiet node stays healthy
+const uint32_t HEARTBEAT_MS = 60000;    // heartbeat interval (WiFi/MQTT mode only)
 
 // Calibration knobs — real sensors drift and every site's field differs. Tune
 // TRIGGER_LSB against your own drive-bys: log deltas first, then set the
@@ -166,6 +168,14 @@ void loop() {
     mqtt.connect(NODE_ID, MQTT_USER[0] ? MQTT_USER : nullptr, MQTT_PASS[0] ? MQTT_PASS : nullptr);
   }
   mqtt.loop();
+  // Heartbeat so a working-but-quiet sensor still satisfies the base watchdog.
+  static uint32_t lastHb = 0;
+  if (mqtt.connected() && (!lastHb || millis() - lastHb > HEARTBEAT_MS)) {
+    lastHb = millis();
+    char hb[48];
+    snprintf(hb, sizeof(hb), "{\"node\":\"%s\"}", NODE_ID);
+    mqtt.publish(HEARTBEAT_TOPIC, hb);
+  }
 #endif
 
   int16_t x, y, z;

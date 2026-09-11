@@ -15,6 +15,7 @@ Endpoints:
     /api/search?q&type&node&event&from&to&limit&offset   filtered event search
     /api/facets               distinct types/nodes/events for the filters
     /api/outbox               alert-delivery backlog: counts + oldest pending
+    /api/status               monitor liveness, broker link, stale threshold, missing sensors
 Read-only by design: arming and configuration stay on the MQTT control topic
 and config.ini, so the dashboard adds no attack surface beyond a status page.
 """
@@ -22,6 +23,7 @@ import argparse
 import json
 import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -40,14 +42,52 @@ def _bound(val, default, hi=MAX_LIMIT, lo=1):
 
 
 def query_nodes(conn):
-    """One row per node: last event timestamp and total event count."""
+    """One row per node: last-seen and event count, merging event history with
+    node_health so a heartbeat-only node (present but quiet) still appears."""
+    nodes = {}
     try:
-        rows = conn.execute(
-            "SELECT node, MAX(ts), COUNT(*) FROM events GROUP BY node "
-            "ORDER BY MAX(ts) DESC").fetchall()
+        for n, ts, c in conn.execute(
+                "SELECT node, MAX(ts), COUNT(*) FROM events GROUP BY node"):
+            nodes[n] = {'node': n, 'last_seen': ts, 'events': c, 'source': 'event'}
     except sqlite3.OperationalError:
         return []  # monitor hasn't created the events table yet
-    return [{'node': n, 'last_seen': ts, 'events': c} for n, ts, c in rows]
+    try:
+        for n, ts, src in conn.execute("SELECT node, last_seen, source FROM node_health"):
+            row = nodes.setdefault(n, {'node': n, 'last_seen': ts, 'events': 0, 'source': src})
+            if ts and ts > (row['last_seen'] or ''):  # health beat newer than last event
+                row['last_seen'] = ts
+                row['source'] = src
+    except sqlite3.OperationalError:
+        pass  # older DB without node_health
+    return sorted(nodes.values(), key=lambda r: r['last_seen'] or '', reverse=True)
+
+
+def query_status(conn):
+    """Monitor liveness for the dashboard: whether the monitor is writing, its
+    broker link, the configured stale threshold, and which expected sensors are
+    currently missing. Lets a fetch distinguish monitor-down from empty history."""
+    st = {'monitor_seen': None, 'broker_connected': False, 'sensor_timeout': 900,
+          'expected': [], 'missing': []}
+    try:
+        row = conn.execute("SELECT ts, broker_connected, sensor_timeout, expected, armed "
+                           "FROM monitor_status WHERE id=1").fetchone()
+    except sqlite3.OperationalError:
+        return st
+    if not row:
+        return st
+    st['monitor_seen'] = row[0]
+    st['broker_connected'] = bool(row[1])
+    st['sensor_timeout'] = row[2] or 900
+    st['armed'] = bool(row[4])
+    expected = [s.strip() for s in (row[3] or '').split(',') if s.strip()]
+    st['expected'] = expected
+    if expected:
+        seen = {n: ts for n, ts, _ in
+                conn.execute("SELECT node, last_seen, source FROM node_health")}
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(seconds=st['sensor_timeout'])).isoformat()
+        st['missing'] = [n for n in expected if seen.get(n, '') < cutoff]
+    return st
 
 
 def query_outbox(conn):
@@ -159,6 +199,8 @@ def make_handler(db_path):
                         self._json(query_facets(conn))
                     elif url.path == '/api/outbox':
                         self._json(query_outbox(conn))
+                    elif url.path == '/api/status':
+                        self._json(query_status(conn))
                     else:
                         self.send_error(404)
                 finally:

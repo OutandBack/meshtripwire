@@ -13,9 +13,17 @@ because the whole point is working where there is no Internet.
   violet). Correlated
   events **line up vertically across rows**: the chart shows the fusion
   logic structurally.
-- **Nodes**: per-node last-seen and totals; nodes silent past 30 minutes
-  flag in red.
-- **Notification log**: the last 40 delivery attempts with ✓/✗ and errors.
+- **Nodes**: per-node last-seen and totals. Presence comes from both event
+  history and node heartbeats, so a working-but-quiet sensor still shows
+  healthy (marked `·hb`); a node silent past the monitor's *configured*
+  watchdog timeout flags in red, and an expected sensor that never reports
+  shows explicitly as `missing`.
+- **Monitor health**: a header badge reads `monitor up`, `broker down`, or
+  `monitor down`. The monitor stamps a status row every few seconds; if it
+  goes stale the badge shows `monitor down`, so a page that merely loads is
+  never mistaken for a system that is actually running.
+- **Notification log**: the last 40 delivery attempts with ✓/✗ and errors,
+  plus a `N queued / N failed` outbox badge.
 - **Recent events**: live feed, refreshing every 5 s, showing thunder-labeled
   vibration events as "(thunder?)" and lightning strikes with distance, with an
   "unknown & strong signals only" filter that hides whitelisted gear and weak

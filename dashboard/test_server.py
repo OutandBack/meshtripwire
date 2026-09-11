@@ -1,8 +1,10 @@
 """Check the dashboard queries. Run: venv/bin/python -m dashboard.test_server"""
 import sqlite3
 
+from datetime import datetime, timedelta, timezone
+
 from dashboard.server import (query_facets, query_nodes, query_notifications,
-                              query_outbox, query_search)
+                              query_outbox, query_search, query_status)
 
 conn = sqlite3.connect(':memory:')
 conn.execute("""CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,6 +31,26 @@ assert evs[1] == {'ts': '2026-08-27T10:00:30+00:00', 'node': 'fence-e',
 nodes = {n['node']: n for n in query_nodes(conn)}
 assert nodes['gate']['last_seen'] == '2026-08-27T10:05:00+00:00'
 assert nodes['gate']['events'] == 2 and nodes['fence-e']['events'] == 1
+
+# node_health surfaces a heartbeat-only node (present but never in events)
+conn.execute("""CREATE TABLE node_health (node TEXT PRIMARY KEY, last_seen TEXT, source TEXT)""")
+now = datetime.now(timezone.utc)
+conn.execute("INSERT INTO node_health VALUES (?,?,?)",
+             ('quiet-pir', now.isoformat(), 'heartbeat'))
+nodes = {n['node']: n for n in query_nodes(conn)}
+assert 'quiet-pir' in nodes and nodes['quiet-pir']['source'] == 'heartbeat'
+assert nodes['quiet-pir']['events'] == 0
+
+# Monitor status: liveness, timeout, and which expected sensors are missing
+conn.execute("""CREATE TABLE monitor_status (id INTEGER PRIMARY KEY CHECK(id=1),
+    ts TEXT, broker_connected INTEGER, sensor_timeout INTEGER, expected TEXT, armed INTEGER)""")
+conn.execute("INSERT INTO monitor_status VALUES (1,?,?,?,?,?)",
+             (now.isoformat(), 1, 900, 'quiet-pir,dead-gate', 1))
+st = query_status(conn)
+assert st['broker_connected'] is True and st['sensor_timeout'] == 900
+assert st['expected'] == ['quiet-pir', 'dead-gate']
+# quiet-pir beat recently -> healthy; dead-gate never in node_health -> missing
+assert st['missing'] == ['dead-gate'], st['missing']
 
 # Search: every filter narrows; empty filters mean "all"; newest first
 all_rows = query_search(conn)
