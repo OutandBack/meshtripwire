@@ -4,6 +4,18 @@ Every alert dispatches to all enabled channels, and **every delivery attempt
 is logged** per channel, success or failure with the error, to the
 `notifications` table, visible in the dashboard's notification log panel.
 
+## Durable delivery
+
+Alerts are not delivered on the ingest thread. Each alert decision enqueues a
+row into a persistent `alert_outbox` table (a fast insert), and an independent
+worker delivers it. This means a slow or failed notification provider never
+stalls detection, a queued alert survives a monitor restart, and transient
+failures are retried with exponential backoff (30 s doubling to a 1 h cap)
+until delivered or dead-lettered after several attempts. The queue is bounded,
+and the dashboard shows a `N queued / N failed` badge on the notification log
+(also at `/api/outbox`). Delivery "success" means a channel's transport or API
+accepted the message; it does not prove a person received or acknowledged it.
+
 ## Channels
 
 ### ntfy.sh
