@@ -26,6 +26,10 @@
 #define OUTPUT_SERIAL 0                 // 0 = WiFi/MQTT, 1 = Serial lines for LoRa backhaul
 #define SERIAL_MESHCORE 0               // with OUTPUT_SERIAL 1: 0 = plain text lines (Meshtastic
                                         // Serial module), 1 = MeshCore companion-radio framing
+#define BACKHAUL_CELL 0                 // with OUTPUT_SERIAL 0: 1 = solo cellular tripwire on a
+                                        // LilyGO T-SIM7080G-S3 -- classify on-device, SMS the event
+                                        // over LTE. No WiFi/MQTT/broker/Pi. Config in the cell block
+                                        // below. Same block copies into any other sensor sketch.
 #define DEBUG_PRINT   1                 // 1 = print envelope/hits 1/s for calibration.
                                         // Ignored when OUTPUT_SERIAL=1: a wired Meshtastic
                                         // node would relay every debug line over LoRa.
@@ -57,7 +61,89 @@ const int      GLASS_MIN_SAMPLES = 80;  // over-threshold samples in one burst t
 const uint32_t COOLDOWN_MS     = 15000; // one event per episode (monitor adds per-type cooldowns)
 // ----------------------------
 
-#if !OUTPUT_SERIAL
+#if !OUTPUT_SERIAL && BACKHAUL_CELL
+// ---- Cellular (LilyGO T-SIM7080G-S3) -- copy this whole block to add cellular
+//      egress to any sensor sketch; only the report() call site changes. ----
+#define TINY_GSM_MODEM_SIM7080
+#include <TinyGsmClient.h>
+// Board pins from Xinyuan-LilyGO/LilyGo-T-SIM7080G (examples/utilities.h).
+// VERIFY against your board revision: LilyGO's wiki lists PWRKEY on GPIO12 for
+// an older/other revision; the ESP32-S3 repo uses GPIO41 (below).
+const int      MODEM_PWR_PIN = 41;   // PWRKEY: pulse to power the modem on
+const int      MODEM_DTR_PIN = 42;
+const int      MODEM_RX_PIN  = 4;    // ESP32 RX  <- modem TX
+const int      MODEM_TX_PIN  = 5;    // ESP32 TX  -> modem RX
+const uint32_t MODEM_BAUD    = 115200;
+const char*    CELL_APN      = "hologram";     // your SIM's APN (SMS needs none; POST does)
+const char*    CELL_USER     = "";
+const char*    CELL_PASS     = "";
+const char*    SMS_TO        = "+15551234567"; // number to text; "" disables SMS
+#define CELL_WEBHOOK 0               // 1 = ALSO POST each event over LTE data
+#define WEBHOOK_TLS  1               // 1 = HTTPS (443). TLS on the modem needs on-hardware tuning.
+const char*    WEBHOOK_HOST  = "example.com";
+const uint16_t WEBHOOK_PORT  = 443;
+const char*    WEBHOOK_PATH  = "/hook";
+
+HardwareSerial SerialAT(1);
+TinyGsm modem(SerialAT);
+#if CELL_WEBHOOK
+  #if WEBHOOK_TLS
+    TinyGsmClientSecure webClient(modem);
+  #else
+    TinyGsmClient webClient(modem);
+  #endif
+#endif
+
+void modemPowerOn() {
+  pinMode(MODEM_PWR_PIN, OUTPUT);
+  digitalWrite(MODEM_PWR_PIN, LOW);  delay(100);
+  digitalWrite(MODEM_PWR_PIN, HIGH); delay(1000);   // >1s pulse latches power on
+  digitalWrite(MODEM_PWR_PIN, LOW);
+}
+
+void cell_setup() {
+  pinMode(MODEM_DTR_PIN, OUTPUT);
+  digitalWrite(MODEM_DTR_PIN, LOW);  // keep modem awake
+  SerialAT.begin(MODEM_BAUD, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
+  modemPowerOn();
+  delay(3000);                       // modem needs a few seconds after PWRKEY
+  modem.restart();
+  modem.waitForNetwork(60000L);      // registration; SMS works once registered
+}
+
+#if CELL_WEBHOOK
+String json_escape(const char* s) {
+  String o;
+  for (const char* p = s; *p; p++) { if (*p == '"' || *p == '\\') o += '\\'; o += *p; }
+  return o;
+}
+void cell_post(const char* text) {
+  if (!modem.isGprsConnected() && !modem.gprsConnect(CELL_APN, CELL_USER, CELL_PASS)) return;
+  if (!webClient.connect(WEBHOOK_HOST, WEBHOOK_PORT)) return;
+  String body = String("{\"text\":\"") + json_escape(text) + "\"}";
+  webClient.print(String("POST ") + WEBHOOK_PATH + " HTTP/1.1\r\n");
+  webClient.print(String("Host: ") + WEBHOOK_HOST + "\r\n");
+  webClient.print("Content-Type: application/json\r\n");
+  webClient.print(String("Content-Length: ") + body.length() + "\r\n");
+  webClient.print("Connection: close\r\n\r\n");
+  webClient.print(body);
+  uint32_t t0 = millis();
+  while (webClient.connected() && millis() - t0 < 10000) { while (webClient.available()) webClient.read(); }
+  webClient.stop();
+}
+#endif
+
+void cell_egress(const char* text) {
+  if (SMS_TO[0]) modem.sendSMS(SMS_TO, text);
+#if CELL_WEBHOOK
+  cell_post(text);
+#endif
+#if DEBUG_PRINT
+  Serial.printf("egress: %s\n", text);
+#endif
+}
+// ---- end cellular block ----
+#elif !OUTPUT_SERIAL
   #include <WiFi.h>
   #include <PubSubClient.h>
   WiFiClient net;
@@ -102,6 +188,13 @@ void report(char kind, int value) {
   #else
     Serial.println(line);
   #endif
+#elif BACKHAUL_CELL
+  // Solo cellular tripwire: text the classified event straight out over LTE.
+  const char* event = kind == 'K' ? "knock" : kind == 'G' ? "glass" : "shake";
+  const char* field = kind == 'S' ? "hits" : "peak";
+  char text[80];
+  snprintf(text, sizeof(text), "meshtripwire %s: %s %s=%d", NODE_ID, event, field, value);
+  cell_egress(text);
 #else
   // Explicit per-kind mapping so it matches the compact-line/registry contract:
   // K=knock/peak, G=glass/peak, S=shake/hits. (A K-vs-else test would miss glass.)
@@ -120,7 +213,9 @@ void setup() {
   meshcore_appstart();
 #endif
   analogReadResolution(12);
-#if !OUTPUT_SERIAL
+#if !OUTPUT_SERIAL && BACKHAUL_CELL
+  cell_setup();
+#elif !OUTPUT_SERIAL
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; i++) delay(250);
@@ -149,7 +244,7 @@ void loop() {
 #if OUTPUT_SERIAL && SERIAL_MESHCORE
   while (Serial.available()) Serial.read();  // drain companion-radio responses
 #endif
-#if !OUTPUT_SERIAL
+#if !OUTPUT_SERIAL && !BACKHAUL_CELL
   if (!mqtt.connected() && millis() - lastReconnect > 5000) {
     lastReconnect = millis();
     if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();

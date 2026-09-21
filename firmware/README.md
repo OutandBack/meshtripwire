@@ -139,6 +139,10 @@ The monitor alerts on both types with independent per-node cooldowns
 defaults lower because it's high-confidence). Backhaul, arming, SQLite logging,
 and the sensor watchdog behave exactly as for the vehicle node.
 
+It also has a **solo cellular** mode (`BACKHAUL_CELL 1`) for a site with cell
+coverage but no WiFi, mesh, or Pi — see [Cellular](#cellular-lilygo-t-sim7080g-s3)
+below.
+
 ## Lightning node (AS3935)
 
 `firmware/as3935_lightning/` pairs any ESP32 with an AS3935 franklin lightning
@@ -187,6 +191,45 @@ module's periodic state re-broadcasts.
 
 Use this for every on/off sensor; reach for custom firmware (above) only when
 the sensor needs on-device analog classification.
+
+## Cellular (LilyGO T-SIM7080G-S3)
+
+For a spot with cell coverage but no WiFi and no mesh, the LilyGO T-SIM7080G-S3
+(ESP32-S3 + SIM7080G, LTE-M/NB-IoT) carries events or alerts over cellular. It
+cannot *be* the base station — the correlation, arming, history, dashboard, and
+durable outbox all live in the Pi's Python monitor, which a microcontroller
+can't run — but it fills two roles, both firmware-only:
+
+- **Solo tripwire** — any sensor sketch built with `BACKHAUL_CELL 1`
+  (reference: `piezo_vibration`). No WiFi, no MQTT, no broker, no Pi: the sensor
+  classifies on-device as it already does, then SMSes the event straight over
+  LTE. You lose everything the base station adds (correlation across sensors,
+  arming schedule, whitelist, history, dashboard, retry) — the trade for a
+  single self-contained box. The whole cellular block is delimited with a
+  banner comment; copy it plus the one `report()` branch into
+  `qmc5883l_vehicle`, `as3935_lightning`, or `esp32_sniffer` to make any of them
+  a solo cellular node.
+- **Alert bridge** — `firmware/sim7080_alert_bridge/`. Keeps the full Pi base
+  station and adds cellular alert egress: the board joins the base LAN over
+  WiFi, subscribes to the MQTT alert topic (set `[Notifications] EnableMqtt =
+  true`, default `meshtripwire/alerts`), and pushes each finished alert out over
+  LTE. It's "RelayFabric, but cellular" — no base-station code changes.
+
+**Egress**: **SMS** by default (`SMS_TO`) — native to the SIM7080G, needs no
+data plan, and works fully off-grid. Set `CELL_WEBHOOK 1` to *also* HTTPS-POST
+each alert over LTE data to a URL you control; aim it at a `signal-cli` / ntfy /
+Telegram relay to reach those. Signal has no embedded client, so it can only be
+reached through such a relay, never straight from the modem.
+
+**Flash it**: install the modem library once (`arduino-cli lib install
+TinyGSM`), then compile for the S3 (`--fqbn esp32:esp32:esp32s3`). Edit the cell
+block: `CELL_APN` for your SIM, `SMS_TO`, and — for the bridge — the base
+`WIFI_SSID`/`MQTT_HOST`. The modem pins default to the LilyGO ESP32-S3 repo
+values (PWRKEY 41, DTR 42, RX 4, TX 5); **verify against your board revision**,
+as LilyGO's wiki lists PWRKEY on GPIO12 for another revision. To power on with a
+battery attached, some boards need the side switch ON and a 2 s tap of PWR.
+
+**Status**: compile-verified in all backhaul modes; not yet run on the board.
 
 ## Reality checks
 

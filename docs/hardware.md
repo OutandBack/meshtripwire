@@ -20,6 +20,7 @@ like).
 | **Lightning sensor node** | AS3935 module (CJMCU-3935) + any ESP32 above | $8–15 | Hears strikes to ~40 km; thunder-labels piezo alerts so storms don't false-alarm. |
 | **Off-grid / LoRa node** | [Heltec WiFi LoRa 32 V3](https://amzn.to/4gQIko0) | $12–18 | Only for sensors/alerts beyond WiFi range. Runs Meshtastic (or MeshCore/Reticulum stacks). |
 | | 868/915 MHz antenna | $2–5 | Match your region's ISM band; never power a LoRa board without one. |
+| **Cellular node** | LilyGO T-SIM7080G-S3 | $30–40 | ESP32-S3 + SIM7080G (LTE-M/NB-IoT + GNSS). For a site with cell coverage but no WiFi or mesh: run it as a standalone SMS tripwire, or as a cellular alert bridge for a full base station. Needs an LTE-M/NB-IoT SIM. |
 | **Reticulum relay host** | Pi Zero W + RNode | $15 + RNode | Runs `sensors/rns_field_relay.py` for the LXMF backhaul path. |
 | **Power (per remote node)** | [18650 cell + holder](https://amzn.to/4c9de8z), or USB PSU | $5–15 | Solar + LiPo for true off-grid; a phone charger indoors. |
 

@@ -95,6 +95,8 @@ unit-tested against the documented protocol but has not touched hardware.
 | Meshtastic serial→LoRa backhaul | shipped | bridge unit-tested; serial path bench-tested |
 | LXMF/Reticulum backhaul | shipped | **live-tested** over a real RNS network (LXMF delivery through the bridge to a dispatched alert); RNode radio-only path pending a second radio |
 | MeshCore backhaul | shipped | mock-tested; **hardware validation pending** |
+| Cellular ingest / solo SMS tripwire (T-SIM7080G-S3) | shipped | compile-verified in all backhaul modes; **hardware validation pending** |
+| Cellular alert bridge (LTE SMS / webhook egress) | shipped | compile-verified; **hardware validation pending** |
 
 ## Where to start
 

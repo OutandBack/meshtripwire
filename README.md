@@ -107,7 +107,11 @@ traffic 10–20×; wiring and bandwidth notes in
 Alerts leave off-grid the same way: set `EnableMqtt = true` and
 [RelayFabric](https://github.com/RelayFabric/RelayFabric) picks alerts off the
 broker and carries them over Meshtastic, MeshCore, or LXMF/Reticulum, no
-cellular required (see its `meshtripwire` plugin).
+cellular required (see its `meshtripwire` plugin). Where a site has cell
+coverage instead of a mesh, a LilyGO T-SIM7080G-S3 running
+`firmware/sim7080_alert_bridge` carries alerts out over LTE (SMS, or a webhook
+POST to a Signal/ntfy relay); or build any sensor sketch with `BACKHAUL_CELL 1`
+as a standalone SMS tripwire with no base station at all.
 
 ## Hardware
 
@@ -130,6 +134,7 @@ buy anywhere you like).
 | **Contact sensors** | Reed switch, PIR (AM312), IR beam-break, float | $1–8 | Straight onto a Meshtastic node's GPIO. |
 | **Off-grid / LoRa node** | [Heltec WiFi LoRa 32 V3](https://amzn.to/4gQIko0) | $12–18 | Only for reach beyond WiFi. Runs Meshtastic or MeshCore. |
 | | 868/915 MHz antenna | $2–5 | Match your region's band; never transmit without one. |
+| **Cellular node** | LilyGO T-SIM7080G-S3 | $30–40 | ESP32-S3 + SIM7080G (LTE-M/NB-IoT). A standalone SMS tripwire, or a cellular alert bridge, where there's cell but no WiFi or mesh. Needs an LTE-M/NB-IoT SIM. |
 | **Power (per remote node)** | [18650 cell + holder](https://amzn.to/4c9de8z), or USB PSU | $5–15 | Solar + LiPo for true off-grid. |
 
 Minimum viable tripwire: a Pi with built-in BLE running the base scanner. Add

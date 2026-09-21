@@ -72,6 +72,35 @@ python -m sensors.rns_field_relay --serial-port /dev/ttyACM0 \
 Reticulum interfaces (RNode, TCP tunnels, ...) come from each host's own RNS
 config (`~/.reticulum`).
 
+## Cellular (LTE-M / NB-IoT)
+
+Where a site has cell coverage but no WiFi and no mesh, a LilyGO T-SIM7080G-S3
+(ESP32-S3 + SIM7080G) carries events or alerts over LTE. Two roles, both pure
+firmware, no base-station changes:
+
+- **Solo tripwire** (`firmware/piezo_vibration`, `BACKHAUL_CELL 1`): one box,
+  no Pi. The sensor classifies on-device as usual and SMSes the event straight
+  over LTE. What you give up is everything the Pi does — cross-sensor
+  correlation, arming schedules, whitelist, history, the dashboard, the durable
+  outbox — in exchange for zero infrastructure. The same cellular block copies
+  into any other sensor sketch.
+- **Alert bridge** (`firmware/sim7080_alert_bridge`): keeps the full Pi base
+  station. The board joins the base LAN over WiFi, subscribes to the alert
+  topic (`EnableMqtt = true`, `MqttAlertTopic`), and pushes each finished alert
+  out over LTE. The cellular counterpart to the RelayFabric LoRa path below.
+
+Egress is **SMS** by default — native to the modem, no data plan, texts land on
+the configured phone. Setting `CELL_WEBHOOK 1` *also* POSTs each alert over LTE
+data to a URL you control; point that at a `signal-cli` / ntfy / Telegram relay
+to reach those services. (Signal can't originate on the modem itself — there is
+no embedded Signal client — so the relay does the actual delivery.) TLS on the
+modem is the one part that needs on-hardware tuning.
+
+Config lives in the sketch's cell block: APN, SMS number, and the T-SIM7080G-S3
+modem pins (verify against your board revision — the comment notes the
+wiki/repo discrepancy on PWRKEY). Install TinyGSM
+(`arduino-cli lib install TinyGSM`) before building.
+
 ## Off-grid alerts (RelayFabric)
 
 ntfy, webhook, Twilio, and SMTP all need the Internet, the opposite of the
